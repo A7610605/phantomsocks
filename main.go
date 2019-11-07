@@ -6,6 +6,8 @@ import (
 	"log"
 	"net"
 	"strconv"
+
+	ptcp "./phantomtcp"
 )
 
 func GetHost(client net.Conn) string {
@@ -47,7 +49,9 @@ func handleProxy(client net.Conn) {
 	defer client.Close()
 
 	host := GetHost(client)
-	if host != "" {
+	_, ok := ptcp.DomainLookup(host)
+	if ok {
+	} else {
 		server, err := net.Dial("tcp", host)
 		if err != nil {
 			log.Println(err)
@@ -62,6 +66,15 @@ func handleProxy(client net.Conn) {
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	err := ptcp.LoadConfig()
+	if err != nil {
+		if ptcp.LogLevel > 0 {
+			log.Println(err)
+		}
+		return
+	}
+
 	l, err := net.Listen("tcp", ":1080")
 	if err != nil {
 		log.Panic(err)
