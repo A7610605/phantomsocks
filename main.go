@@ -49,19 +49,34 @@ func handleProxy(client net.Conn) {
 	defer client.Close()
 
 	host := GetHost(client)
-	_, ok := ptcp.DomainLookup(host)
+	conf, ok := ptcp.DomainLookup(host)
+
+	var conn net.Conn
+	var err error
 	if ok {
-	} else {
-		server, err := net.Dial("tcp", host)
+		var b [1500]byte
+		n, err := client.Read(b[:])
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		defer server.Close()
-
-		go io.Copy(server, client)
-		io.Copy(client, server)
+		conn, err = ptcp.Dial(host, b[:n], &conf)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer conn.Close()
+		go io.Copy(client, conn)
+	} else {
+		conn, err = net.Dial("tcp", host)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer conn.Close()
+		go io.Copy(client, conn)
 	}
+	io.Copy(conn, client)
 }
 
 func main() {

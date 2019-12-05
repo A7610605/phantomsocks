@@ -11,21 +11,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 type Config struct {
-	Option   uint32
-	TTL      byte
-	MAXTTL   byte
-	MSS      uint16
-	ANCount4 uint16
-	ANCount6 uint16
-	Answers4 []byte
-	Answers6 []byte
-}
-
-type IPConfig struct {
 	Option uint32
 	TTL    byte
 	MAXTTL byte
@@ -33,27 +21,45 @@ type IPConfig struct {
 }
 
 var DomainMap map[string]Config
-var CookiesMap map[string][]byte
-var IPMap map[string]IPConfig
-var wg sync.WaitGroup
+var IPMap map[string]Config
 
-var IPv6Enable = false
+var SubdomainDepth = 2
 var LogLevel = 0
 var Forward bool = false
-var TFOEnable = false
 
 const (
-	OPT_TTL   = 0x001
-	OPT_MSS   = 0x002
-	OPT_MD5   = 0x004
-	OPT_ACK   = 0x008
-	OPT_SYN   = 0x010
-	OPT_CSUM  = 0x020
-	OPT_TFO   = 0x040
-	OPT_BAD   = 0x080
-	OPT_IPOPT = 0x100
-	OPT_PSH   = 0x200
+	OPT_NONE   = 0x0
+	OPT_TTL    = 0x1 << 0
+	OPT_MD5    = 0x1 << 1
+	OPT_ACK    = 0x1 << 2
+	OPT_CSUM   = 0x1 << 3
+	OPT_BAD    = 0x1 << 4
+	OPT_IPOPT  = 0x1 << 5
+	OPT_SEQ    = 0x1 << 6
+	OPT_HTTPS  = 0x1 << 7
+	OPT_MSS    = 0x1 << 8
+	OPT_TFO    = 0x10000 << 0
+	OPT_SYN    = 0x10000 << 1
+	OPT_NOFLAG = 0x10000 << 2
+	OPT_QUIC   = 0x10000 << 3
 )
+
+var MethodMap = map[string]uint32{
+	"none":    OPT_NONE,
+	"ttl":     OPT_TTL,
+	"mss":     OPT_MSS,
+	"w-md5":   OPT_MD5,
+	"w-ack":   OPT_ACK,
+	"no-csum": OPT_CSUM,
+	"bad":     OPT_BAD,
+	"ipopt":   OPT_IPOPT,
+	"seq":     OPT_SEQ,
+	"https":   OPT_HTTPS,
+	"tfo":     OPT_TFO,
+	"syn":     OPT_SYN,
+	"no-flag": OPT_NOFLAG,
+	"quic":    OPT_QUIC,
+}
 
 var Logger *log.Logger
 
@@ -83,7 +89,7 @@ func DomainLookup(qname string) (Config, bool) {
 		offset++
 	}
 
-	return Config{0, 0, 0, 0, 0, 0, nil, nil}, false
+	return Config{0, 0, 0, 0}, false
 }
 
 func getSNI(b []byte) (offset int, length int) {
@@ -146,6 +152,7 @@ func getHost(b []byte) (offset int, length int) {
 	if offset == -1 {
 		return 0, 0
 	}
+	offset += 6
 	length = bytes.Index(b[offset:], []byte("\r\n"))
 	if offset == -1 {
 		return 0, 0
@@ -174,7 +181,7 @@ func getMyIPv6() net.IP {
 
 func LoadConfig() error {
 	DomainMap = make(map[string]Config)
-	IPMap = make(map[string]IPConfig)
+	IPMap = make(map[string]Config)
 
 	conf, err := os.Open("config")
 	if err != nil {
@@ -188,6 +195,8 @@ func LoadConfig() error {
 	var minTTL byte = 0
 	var maxTTL byte = 0
 	var syncMSS uint16 = 0
+	ipv6Enable := true
+	ipv4Enable := true
 
 	for {
 		line, _, err := br.ReadLine()
@@ -196,30 +205,62 @@ func LoadConfig() error {
 		}
 		if len(line) > 0 {
 			if line[0] != '#' {
-				keys := strings.SplitN(string(line), "=", 2)
+				l := strings.SplitN(string(line), "#", 2)[0]
+				keys := strings.SplitN(l, "=", 2)
 				if len(keys) > 1 {
 					if keys[0] == "server" {
-						DNS = keys[1]
-						tcpAddr, err := net.ResolveTCPAddr("tcp", keys[1])
+						var tcpAddr *net.TCPAddr
+						var err error
+						if ipv6Enable {
+							if ipv4Enable {
+								tcpAddr, err = net.ResolveTCPAddr("tcp", keys[1])
+							} else {
+								tcpAddr, err = net.ResolveTCPAddr("tcp6", keys[1])
+							}
+						} else {
+							tcpAddr, err = net.ResolveTCPAddr("tcp4", keys[1])
+						}
 						if err != nil {
 							log.Println(string(line), err)
 							return err
 						}
-						IPMap[tcpAddr.IP.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
+						DNS = tcpAddr.String()
+						IPMap[tcpAddr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS}
 						logPrintln(2, string(line))
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
+						logPrintln(2, string(line))
+					} else if keys[0] == "ipv6" {
+						if keys[1] == "true" {
+							ipv6Enable = true
+						} else {
+							ipv6Enable = false
+						}
+						logPrintln(2, string(line))
+					} else if keys[0] == "ipv4" {
+						if keys[1] == "true" {
+							ipv4Enable = true
+						} else {
+							ipv4Enable = false
+						}
+						logPrintln(2, string(line))
+					} else if keys[0] == "method" {
+						option = OPT_NONE
+						methods := strings.Split(keys[1], ",")
+						for _, m := range methods {
+							method, ok := MethodMap[m]
+							if ok {
+								option |= method
+							} else {
+								logPrintln(1, "Unsupported method: "+m)
+							}
+						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "ttl" {
 						ttl, err := strconv.Atoi(keys[1])
 						if err != nil {
 							log.Println(string(line), err)
 							return err
-						}
-						if ttl == 0 {
-							option &= ^uint32(OPT_TTL)
-						} else {
-							option |= OPT_TTL
 						}
 						minTTL = byte(ttl)
 						logPrintln(2, string(line))
@@ -229,69 +270,7 @@ func LoadConfig() error {
 							log.Println(string(line), err)
 							return err
 						}
-						if mss == 0 {
-							option &= ^uint32(OPT_MSS)
-						} else {
-							option |= OPT_MSS
-						}
 						syncMSS = uint16(mss)
-						logPrintln(2, string(line))
-					} else if keys[0] == "md5" {
-						if keys[1] == "true" {
-							option |= OPT_MD5
-						} else {
-							option &= ^uint32(OPT_MD5)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "ack" {
-						if keys[1] == "true" {
-							option |= OPT_ACK
-						} else {
-							option &= ^uint32(OPT_ACK)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "syn" {
-						if keys[1] == "true" {
-							option |= OPT_SYN
-						} else {
-							option &= ^uint32(OPT_SYN)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "checksum" {
-						if keys[1] == "true" {
-							option |= OPT_CSUM
-						} else {
-							option &= ^uint32(OPT_CSUM)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "tcpfastopen" {
-						if keys[1] == "true" {
-							option |= OPT_TFO
-							TFOEnable = true
-						} else {
-							option &= ^uint32(OPT_TFO)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "bad" {
-						if keys[1] == "true" {
-							option |= OPT_BAD
-						} else {
-							option &= ^uint32(OPT_BAD)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "ipoption" {
-						if keys[1] == "true" {
-							option |= OPT_IPOPT
-						} else {
-							option &= ^uint32(OPT_IPOPT)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "psh" {
-						if keys[1] == "true" {
-							option |= OPT_PSH
-						} else {
-							option &= ^uint32(OPT_PSH)
-						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "max-ttl" {
 						ttl, err := strconv.Atoi(keys[1])
@@ -301,6 +280,12 @@ func LoadConfig() error {
 						}
 						maxTTL = byte(ttl)
 						logPrintln(2, string(line))
+					} else if keys[0] == "subdomain" {
+						SubdomainDepth, err = strconv.Atoi(keys[1])
+						if err != nil {
+							log.Println(string(line), err)
+							return err
+						}
 					} else if keys[0] == "log" {
 						LogLevel, err = strconv.Atoi(keys[1])
 						if err != nil {
@@ -313,7 +298,7 @@ func LoadConfig() error {
 							if strings.HasSuffix(keys[1], "::") {
 								prefix := net.ParseIP(keys[1])
 								if prefix != nil {
-									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, 0, nil, prefix}
+									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
 								}
 							} else {
 								ips := strings.Split(keys[1], ",")
@@ -325,22 +310,20 @@ func LoadConfig() error {
 											syncMSS = config.MSS
 										}
 									}
-									IPMap[ip] = IPConfig{option, minTTL, maxTTL, syncMSS}
+									IPMap[ip] = Config{option, minTTL, maxTTL, syncMSS}
 								}
-								count4, answer4 := packAnswers(ips, 1)
-								count6, answer6 := packAnswers(ips, 28)
-								DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, uint16(count4), uint16(count6), answer4, answer6}
+
+								DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
 							}
 						} else {
-							//prefix := net.ParseIP(keys[1])
-							//ip4 := ip.To4()
-							//if ip4 != nil {
-							//}
 						}
 					}
 				} else {
 					if keys[0] == "ipv6" {
-						IPv6Enable = true
+						ipv6Enable = true
+						logPrintln(2, string(line))
+					} else if keys[0] == "ipv4" {
+						ipv4Enable = true
 						logPrintln(2, string(line))
 					} else if keys[0] == "forward" {
 						Forward = true
@@ -348,9 +331,22 @@ func LoadConfig() error {
 					} else {
 						addr, err := net.ResolveTCPAddr("tcp", keys[0])
 						if err == nil {
-							IPMap[addr.IP.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
+							IPMap[addr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS}
 						} else {
-							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, 0, nil, nil}
+							if strings.Index(keys[0], "/") > 0 {
+								_, ipnet, err := net.ParseCIDR(keys[0])
+								if err == nil {
+									IPMap[ipnet.String()] = Config{option, minTTL, maxTTL, syncMSS}
+								}
+							} else {
+								ip := net.ParseIP(keys[0])
+
+								if ip != nil {
+									IPMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
+								} else {
+									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
+								}
+							}
 						}
 					}
 				}
@@ -358,13 +354,22 @@ func LoadConfig() error {
 		}
 	}
 
-	if TFOEnable {
-		CookiesMap = make(map[string][]byte)
-	}
-
 	return nil
 }
 
-func Wait() {
-	wg.Wait()
+func Dial(host string, b []byte, conf *Config) (net.Conn, error) {
+	conn, err := net.Dial("tcp", host)
+	if err != nil {
+		return nil, err
+	}
+
+	if b != nil {
+		_, err = conn.Write(b)
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
+
+	return conn, err
 }
