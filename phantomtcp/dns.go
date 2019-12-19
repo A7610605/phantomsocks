@@ -1,6 +1,7 @@
 package phantomtcp
 
 import (
+	"crypto/tls"
 	"encoding/binary"
 	"log"
 	"net"
@@ -131,6 +132,46 @@ func TCPlookupDNS64(request []byte, address string, offset int, prefix []byte) (
 	}
 
 	return response6[:offset6], nil
+}
+
+func TLSlookup(request []byte, address string) ([]byte, error) {
+	conf := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	conn, err := tls.Dial("tcp", address, conf)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	data := make([]byte, 1024)
+	binary.BigEndian.PutUint16(data[:2], uint16(len(request)))
+	copy(data[2:], request)
+
+	_, err = conn.Write(data[:len(request)+2])
+	if err != nil {
+		return nil, err
+	}
+
+	length := 0
+	recvlen := 0
+	for {
+		if recvlen >= 1024 {
+			return nil, nil
+		}
+		n, err := conn.Read(data[recvlen:])
+		if err != nil {
+			return nil, err
+		}
+		if length == 0 {
+			length = int(binary.BigEndian.Uint16(data[:2]) + 2)
+		}
+		recvlen += n
+		if recvlen >= length {
+			return data[2:recvlen], nil
+		}
+	}
+
+	return nil, nil
 }
 
 func getQName(buf []byte) (string, int, int) {
