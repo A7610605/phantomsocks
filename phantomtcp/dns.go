@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -309,4 +310,75 @@ func packAnswers(ips []string, qtype int) (int, []byte) {
 	}
 
 	return count, answers
+}
+
+func PackQName(name string) []byte {
+	length := strings.Count(name, "")
+	QName := make([]byte, length+1)
+	copy(QName[1:], []byte(name))
+	o, l := 0, 0
+	for i := 1; i < length; i++ {
+		if QName[i] == '.' {
+			QName[o] = byte(l)
+			l = 0
+			o = i
+		} else {
+			l++
+		}
+	}
+	QName[o] = byte(l)
+
+	return QName
+}
+
+func PackRequest(name string, qtype uint16) []byte {
+	Request := make([]byte, 512)
+	binary.BigEndian.PutUint16(Request[:], 0)       //ID
+	binary.BigEndian.PutUint16(Request[2:], 0x0100) //Flag
+	binary.BigEndian.PutUint16(Request[4:], 1)      //QDCount
+	binary.BigEndian.PutUint16(Request[6:], 0)      //ANCount
+	binary.BigEndian.PutUint16(Request[8:], 0)      //NSCount
+	binary.BigEndian.PutUint16(Request[10:], 0)     //ARCount
+	qname := PackQName(name)
+	length := len(qname)
+	copy(Request[12:], qname)
+	length += 12
+	binary.BigEndian.PutUint16(Request[length:], qtype)
+	length += 2
+	binary.BigEndian.PutUint16(Request[length:], 0x01) //QClass
+	length += 2
+
+	return Request[:length]
+}
+
+func NSLookup(name string, qtype uint16) []string {
+	ips, ok := DNSCache[name]
+	if ok {
+		return ips
+	}
+	offset := 0
+	for i := 0; i < 2; i++ {
+		off := strings.Index(name[offset:], ".")
+		if off == -1 {
+			break
+		}
+		offset += off
+		ips, ok = DNSCache[name[offset:]]
+		if ok {
+			return ips
+		}
+		offset++
+	}
+
+	request := PackRequest(name, qtype)
+	response, err := TLSlookup(request, DNS)
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
+	count := int(binary.BigEndian.Uint16(response[6:8]))
+	ips = getAnswers(response[len(request):], count)
+	DNSCache[name] = ips
+
+	return ips
 }

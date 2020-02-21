@@ -22,7 +22,9 @@ type Config struct {
 
 var DomainMap map[string]Config
 var IPMap map[string]Config
+var DNSCache map[string][]string
 
+var Device string = "eth0"
 var SubdomainDepth = 2
 var LogLevel = 0
 var Forward bool = false
@@ -69,20 +71,20 @@ func logPrintln(level int, v ...interface{}) {
 	}
 }
 
-func DomainLookup(qname string) (Config, bool) {
-	config, ok := DomainMap[qname]
+func ConfigLookup(name string) (Config, bool) {
+	config, ok := DomainMap[name]
 	if ok {
 		return config, true
 	}
 
 	offset := 0
 	for i := 0; i < 2; i++ {
-		off := strings.Index(qname[offset:], ".")
+		off := strings.Index(name[offset:], ".")
 		if off == -1 {
 			break
 		}
 		offset += off
-		config, ok = DomainMap[qname[offset:]]
+		config, ok = DomainMap[name[offset:]]
 		if ok {
 			return config, true
 		}
@@ -92,7 +94,7 @@ func DomainLookup(qname string) (Config, bool) {
 	return Config{0, 0, 0, 0}, false
 }
 
-func getSNI(b []byte) (offset int, length int) {
+func GetSNI(b []byte) (offset int, length int) {
 	if b[0] != 0x16 {
 		return 0, 0
 	}
@@ -182,8 +184,9 @@ func getMyIPv6() net.IP {
 func LoadConfig() error {
 	DomainMap = make(map[string]Config)
 	IPMap = make(map[string]Config)
+	DNSCache = make(map[string][]string)
 
-	conf, err := os.Open("config")
+	conf, err := os.Open("default.conf")
 	if err != nil {
 		return err
 	}
@@ -227,6 +230,8 @@ func LoadConfig() error {
 						DNS = tcpAddr.String()
 						IPMap[tcpAddr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS}
 						logPrintln(2, string(line))
+					} else if keys[0] == "device" {
+						Device = keys[1]
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
 						logPrintln(2, string(line))
@@ -295,27 +300,22 @@ func LoadConfig() error {
 					} else {
 						ip := net.ParseIP(keys[0])
 						if ip == nil {
-							if strings.HasSuffix(keys[1], "::") {
-								prefix := net.ParseIP(keys[1])
-								if prefix != nil {
-									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
-								}
-							} else {
-								ips := strings.Split(keys[1], ",")
-								for _, ip := range ips {
-									config, ok := IPMap[ip]
-									if ok {
-										option |= config.Option
-										if syncMSS == 0 {
-											syncMSS = config.MSS
-										}
+							ips := strings.Split(keys[1], ",")
+							for _, ip := range ips {
+								config, ok := IPMap[ip]
+								if ok {
+									option |= config.Option
+									if syncMSS == 0 {
+										syncMSS = config.MSS
 									}
-									IPMap[ip] = Config{option, minTTL, maxTTL, syncMSS}
 								}
-
-								DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
+								IPMap[ip] = Config{option, minTTL, maxTTL, syncMSS}
 							}
+
+							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
+							DNSCache[keys[0]] = ips
 						} else {
+							IPMap[ip.String()] = Config{option, minTTL, maxTTL, syncMSS}
 						}
 					}
 				} else {
@@ -357,19 +357,3 @@ func LoadConfig() error {
 	return nil
 }
 
-func Dial(host string, b []byte, conf *Config) (net.Conn, error) {
-	conn, err := net.Dial("tcp", host)
-	if err != nil {
-		return nil, err
-	}
-
-	if b != nil {
-		_, err = conn.Write(b)
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
-	}
-
-	return conn, err
-}
