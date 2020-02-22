@@ -24,7 +24,6 @@ var DomainMap map[string]Config
 var IPMap map[string]Config
 var DNSCache map[string][]string
 
-var Device string = "eth0"
 var SubdomainDepth = 2
 var LogLevel = 0
 var Forward bool = false
@@ -230,8 +229,6 @@ func LoadConfig() error {
 						DNS = tcpAddr.String()
 						IPMap[tcpAddr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS}
 						logPrintln(2, string(line))
-					} else if keys[0] == "device" {
-						Device = keys[1]
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
 						logPrintln(2, string(line))
@@ -356,4 +353,3 @@ func LoadConfig() error {
 
 	return nil
 }
-

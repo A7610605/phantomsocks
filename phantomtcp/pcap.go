@@ -1,7 +1,6 @@
 package phantomtcp
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -54,13 +53,12 @@ func ConnectionMonitor(deviceName string) {
 
 	filter := "tcp[13]=18 and (tcp src port 443)"
 
-	fmt.Printf("device:%v, snapLen:%v", deviceName, snapLen)
+	fmt.Printf("device:%v", deviceName)
 
 	var err error
 	pcapHandle, err = pcap.OpenLive(deviceName, snapLen, true, pcap.BlockForever)
 	if err != nil {
 		fmt.Printf("pcap open live failed: %v", err)
-		DevicePrint()
 		return
 	}
 
@@ -92,23 +90,21 @@ func ConnectionMonitor(deviceName string) {
 	}
 }
 
-func SendFakePacket(port int, payload []byte, config *Config) error {
-	if config.Option == 0 {
-		return nil
-	}
-
+func CreatePortChan(port int) {
 	portChan := make(chan *ConnectionInfo4)
 	PortInfo4[port] = portChan
+}
+
+func GetConnInfo(port int) *ConnectionInfo4 {
+	portChan := PortInfo4[port]
 
 	var connInfo *ConnectionInfo4
-	var ok bool
-
 	select {
-	case connInfo, ok = <-portChan:
+	case connInfo, _ = <-portChan:
 	case <-time.After(time.Second):
 		PortInfo4[port] = nil
 		close(portChan)
-		return errors.New("Timeout")
+		return nil
 	}
 
 	mutex.Lock()
@@ -116,61 +112,65 @@ func SendFakePacket(port int, payload []byte, config *Config) error {
 	mutex.Unlock()
 	close(portChan)
 
-	if ok {
-		ethernetLayer := &layers.Ethernet{
-			SrcMAC:       connInfo.Eth.DstMAC,
-			DstMAC:       connInfo.Eth.SrcMAC,
-			EthernetType: connInfo.Eth.EthernetType,
-			Length:       connInfo.Eth.Length,
-		}
-		ipLayer := &layers.IPv4{
-			Version:  connInfo.IP.Version,
-			IHL:      connInfo.IP.IHL,
-			TOS:      connInfo.IP.TOS,
-			Length:   0,
-			TTL:      config.TTL,
-			Protocol: connInfo.IP.Protocol,
-			SrcIP:    connInfo.IP.DstIP,
-			DstIP:    connInfo.IP.SrcIP,
-		}
-		tcpLayer := &layers.TCP{
-			SrcPort:    connInfo.TCP.DstPort,
-			DstPort:    connInfo.TCP.SrcPort,
-			Seq:        connInfo.TCP.Ack,
-			Ack:        connInfo.TCP.Seq + 1,
-			DataOffset: 5,
-			ACK:        true,
-			PSH:        true,
-			Window:     connInfo.TCP.Window,
-		}
+	return connInfo
+}
 
-		// And create the packet with the layers
-		buffer := gopacket.NewSerializeBuffer()
-		var options gopacket.SerializeOptions
-		options.FixLengths = true
-		options.ComputeChecksums = true
+func DeletePortChan(port int) {
+	portChan := PortInfo4[port]
 
-		tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	mutex.Lock()
+	PortInfo4[port] = nil
+	mutex.Unlock()
+	close(portChan)
 
-		gopacket.SerializeLayers(
-			buffer,
-			options,
-			ethernetLayer,
-			ipLayer,
-			tcpLayer,
-			gopacket.Payload(payload),
-		)
+	return
+}
 
-		outgoingPacket := buffer.Bytes()
-		err := pcapHandle.WritePacketData(outgoingPacket)
-		if err != nil {
-			return err
-		}
-
-		err = pcapHandle.WritePacketData(outgoingPacket)
-		return err
-	} else {
-		return errors.New("Connection does not exist")
+func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config) error {
+	ethernetLayer := &layers.Ethernet{
+		SrcMAC:       connInfo.Eth.DstMAC,
+		DstMAC:       connInfo.Eth.SrcMAC,
+		EthernetType: connInfo.Eth.EthernetType,
+		Length:       connInfo.Eth.Length,
 	}
-	return nil
+	ipLayer := &layers.IPv4{
+		Version:  connInfo.IP.Version,
+		IHL:      connInfo.IP.IHL,
+		TOS:      connInfo.IP.TOS,
+		Length:   0,
+		TTL:      config.TTL,
+		Protocol: connInfo.IP.Protocol,
+		SrcIP:    connInfo.IP.DstIP,
+		DstIP:    connInfo.IP.SrcIP,
+	}
+	tcpLayer := &layers.TCP{
+		SrcPort:    connInfo.TCP.DstPort,
+		DstPort:    connInfo.TCP.SrcPort,
+		Seq:        connInfo.TCP.Ack,
+		Ack:        connInfo.TCP.Seq + 1,
+		DataOffset: 5,
+		ACK:        true,
+		PSH:        true,
+		Window:     connInfo.TCP.Window,
+	}
+
+	// And create the packet with the layers
+	buffer := gopacket.NewSerializeBuffer()
+	var options gopacket.SerializeOptions
+	options.FixLengths = true
+	options.ComputeChecksums = true
+
+	tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+
+	gopacket.SerializeLayers(
+		buffer,
+		options,
+		ethernetLayer,
+		ipLayer,
+		tcpLayer,
+		gopacket.Payload(payload),
+	)
+
+	outgoingPacket := buffer.Bytes()
+	return pcapHandle.WritePacketData(outgoingPacket)
 }
