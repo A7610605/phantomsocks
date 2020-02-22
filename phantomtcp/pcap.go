@@ -53,7 +53,7 @@ func ConnectionMonitor(deviceName string) {
 
 	filter := "tcp[13]=18 and (tcp src port 443)"
 
-	fmt.Printf("device:%v", deviceName)
+	fmt.Printf("Device: %v\n", deviceName)
 
 	var err error
 	pcapHandle, err = pcap.OpenLive(deviceName, snapLen, true, pcap.BlockForever)
@@ -117,13 +117,12 @@ func GetConnInfo(port int) *ConnectionInfo4 {
 
 func DeletePortChan(port int) {
 	portChan := PortInfo4[port]
-
-	mutex.Lock()
-	PortInfo4[port] = nil
-	mutex.Unlock()
-	close(portChan)
-
-	return
+	if portChan != nil {
+		mutex.Lock()
+		PortInfo4[port] = nil
+		mutex.Unlock()
+		close(portChan)
+	}
 }
 
 func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config) error {

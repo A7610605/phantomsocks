@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -217,6 +218,7 @@ func SocksProxy(listenAddr string) {
 	if err != nil {
 		log.Panic(err)
 	}
+	fmt.Println("Socks:", listenAddr)
 	for {
 		client, err := l.Accept()
 		if err != nil {
@@ -232,6 +234,7 @@ func SNIProxy(listenAddr string) {
 	if err != nil {
 		log.Panic(err)
 	}
+	fmt.Println("SNIProxy:", listenAddr)
 	for {
 		client, err := l.Accept()
 		if err != nil {
@@ -270,7 +273,7 @@ func main() {
 		go SocksProxy(*socksListenAddr)
 	}
 
-	if *socksListenAddr != "" {
+	if *sniListenAddr != "" {
 		go SNIProxy(*sniListenAddr)
 	}
 
