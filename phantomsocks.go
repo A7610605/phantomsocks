@@ -264,6 +264,7 @@ func main() {
 	}
 
 	ptcp.LogLevel = *logLevel
+	ptcp.Init()
 	for _, filename := range strings.Split(*configFiles, ",") {
 		err := ptcp.LoadConfig(filename)
 		if err != nil {

@@ -77,7 +77,7 @@ func ConfigLookup(name string) (Config, bool) {
 	}
 
 	offset := 0
-	for i := 0; i < 2; i++ {
+	for i := 0; i < SubdomainDepth; i++ {
 		off := strings.Index(name[offset:], ".")
 		if off == -1 {
 			break
@@ -180,11 +180,13 @@ func getMyIPv6() net.IP {
 	return nil
 }
 
-func LoadConfig(filename string) error {
+func Init() {
 	DomainMap = make(map[string]Config)
 	IPMap = make(map[string]Config)
 	DNSCache = make(map[string][]string)
+}
 
+func LoadConfig(filename string) error {
 	conf, err := os.Open(filename)
 	if err != nil {
 		return err
