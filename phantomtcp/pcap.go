@@ -125,7 +125,7 @@ func DeletePortChan(port int) {
 	}
 }
 
-func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config) error {
+func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config, count int) error {
 	ethernetLayer := &layers.Ethernet{
 		SrcMAC:       connInfo.Eth.DstMAC,
 		DstMAC:       connInfo.Eth.SrcMAC,
@@ -171,5 +171,12 @@ func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config) e
 	)
 
 	outgoingPacket := buffer.Bytes()
-	return pcapHandle.WritePacketData(outgoingPacket)
+
+	for i := 0; i < count; i++ {
+		err := pcapHandle.WritePacketData(outgoingPacket)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

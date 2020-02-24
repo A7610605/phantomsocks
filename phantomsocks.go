@@ -80,36 +80,36 @@ func handleSocksProxy(client net.Conn) {
 
 						n, err = client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 						if err != nil {
+							conn.Close()
 							if ptcp.LogLevel > 0 {
 								log.Println(err)
 							}
 							return
 						}
-						return
-					}
-
-					n, err = client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
-					if err != nil {
-						if ptcp.LogLevel > 0 {
-							log.Println(err)
+					} else {
+						n, err = client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+						if err != nil {
+							if ptcp.LogLevel > 0 {
+								log.Println(err)
+							}
+							return
 						}
-						return
-					}
 
-					n, err = client.Read(b[:])
-					if err != nil {
-						if ptcp.LogLevel > 0 {
-							log.Println(err)
+						n, err = client.Read(b[:])
+						if err != nil {
+							if ptcp.LogLevel > 0 {
+								log.Println(err)
+							}
+							return
 						}
-						return
-					}
 
-					conn, err = ptcp.DialTCP(&addr, b[:n], &conf)
-					if err != nil {
-						if ptcp.LogLevel > 0 {
-							log.Println(host, err)
+						conn, err = ptcp.DialTCP(&addr, b[:n], &conf)
+						if err != nil {
+							if ptcp.LogLevel > 0 {
+								log.Println(host, err)
+							}
+							return
 						}
-						return
 					}
 				} else {
 					host = net.JoinHostPort(host, strconv.Itoa(port))
