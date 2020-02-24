@@ -180,12 +180,12 @@ func getMyIPv6() net.IP {
 	return nil
 }
 
-func LoadConfig() error {
+func LoadConfig(filename string) error {
 	DomainMap = make(map[string]Config)
 	IPMap = make(map[string]Config)
 	DNSCache = make(map[string][]string)
 
-	conf, err := os.Open("default.conf")
+	conf, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
@@ -205,6 +205,7 @@ func LoadConfig() error {
 		if err == io.EOF {
 			break
 		}
+
 		if len(line) > 0 {
 			if line[0] != '#' {
 				l := strings.SplitN(string(line), "#", 2)[0]
@@ -288,12 +289,6 @@ func LoadConfig() error {
 							log.Println(string(line), err)
 							return err
 						}
-					} else if keys[0] == "log" {
-						LogLevel, err = strconv.Atoi(keys[1])
-						if err != nil {
-							log.Println(string(line), err)
-							return err
-						}
 					} else {
 						ip := net.ParseIP(keys[0])
 						if ip == nil {
@@ -350,6 +345,8 @@ func LoadConfig() error {
 			}
 		}
 	}
+
+	logPrintln(1, filename)
 
 	return nil
 }

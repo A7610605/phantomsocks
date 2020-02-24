@@ -10,6 +10,7 @@ import (
 	"net"
 	"runtime"
 	"strconv"
+	"strings"
 
 	ptcp "./phantomtcp"
 )
@@ -245,10 +246,11 @@ func SNIProxy(listenAddr string) {
 	}
 }
 
-var configFileName = flag.String("c", "default.conf", "Config")
+var configFiles = flag.String("c", "default.conf", "Config")
 var socksListenAddr = flag.String("socks", "", "Socks5")
 var sniListenAddr = flag.String("sni", "", "SNIProxy")
 var device = flag.String("device", "", "Device")
+var logLevel = flag.Int("log", 0, "LogLevel")
 
 func main() {
 	runtime.GOMAXPROCS(1)
@@ -261,12 +263,15 @@ func main() {
 		return
 	}
 
-	err := ptcp.LoadConfig()
-	if err != nil {
-		if ptcp.LogLevel > 0 {
-			log.Println(err)
+	ptcp.LogLevel = *logLevel
+	for _, filename := range strings.Split(*configFiles, ",") {
+		err := ptcp.LoadConfig(filename)
+		if err != nil {
+			if ptcp.LogLevel > 0 {
+				log.Println(err)
+			}
+			return
 		}
-		return
 	}
 
 	if *socksListenAddr != "" {
