@@ -357,7 +357,7 @@ func NSLookup(name string, qtype uint16) []string {
 		return ips
 	}
 	offset := 0
-	for i := 0; i < 2; i++ {
+	for i := 0; i < SubdomainDepth; i++ {
 		off := strings.Index(name[offset:], ".")
 		if off == -1 {
 			break

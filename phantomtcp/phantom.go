@@ -352,3 +352,56 @@ func LoadConfig(filename string) error {
 
 	return nil
 }
+
+func LoadHosts(filename string) error {
+	hosts, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer hosts.Close()
+
+	br := bufio.NewReader(hosts)
+
+	for {
+		line, _, err := br.ReadLine()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			logPrintln(1, err)
+		}
+
+		if len(line) == 0 || line[0] == '#' {
+			continue
+		}
+
+		k := strings.SplitN(string(line), "\t", 2)
+		if len(k) == 2 {
+			name := k[1]
+			ips, ok := DNSCache[name]
+			if ok {
+				continue
+			}
+			offset := 0
+			for i := 0; i < SubdomainDepth; i++ {
+				off := strings.Index(name[offset:], ".")
+				if off == -1 {
+					break
+				}
+				offset += off
+				ips, ok = DNSCache[name[offset:]]
+				if ok {
+					DNSCache[name] = ips
+					continue
+				}
+				offset++
+			}
+
+			if !ok {
+				DNSCache[name] = []string{k[0]}
+			}
+		}
+	}
+
+	return nil
+}

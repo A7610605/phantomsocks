@@ -42,10 +42,16 @@ func handleSocksProxy(client net.Conn) {
 				addr = net.TCPAddr{b[4:8], port, ""}
 				conf, ok := ptcp.ConfigLookup(addr.IP.String())
 				if ok {
+					if ptcp.LogLevel > 0 {
+						fmt.Println("Socks:", addr.IP.String(), addr.Port)
+					}
 					client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 					n, err = client.Read(b[:])
 					conn, err = ptcp.DialTCP(&addr, b[:n], &conf)
 				} else {
+					if ptcp.LogLevel > 0 {
+						fmt.Println("Socks:", addr.IP.String(), addr.Port)
+					}
 					conn, err = net.DialTCP("tcp", nil, &addr)
 					client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 				}
@@ -56,7 +62,7 @@ func handleSocksProxy(client net.Conn) {
 				if ok {
 					ips := ptcp.NSLookup(host, 1)
 					if ptcp.LogLevel > 0 {
-						log.Println(host, port, ips)
+						fmt.Println("Socks:", host, port, ips)
 					}
 
 					ip := net.ParseIP(ips[rand.Intn(len(ips))])
@@ -115,7 +121,7 @@ func handleSocksProxy(client net.Conn) {
 				} else {
 					host = net.JoinHostPort(host, strconv.Itoa(port))
 					if ptcp.LogLevel > 0 {
-						log.Println(host)
+						fmt.Println("Socks:", host, port)
 					}
 					conn, err = net.Dial("tcp", host)
 					if err != nil {
@@ -128,6 +134,9 @@ func handleSocksProxy(client net.Conn) {
 				}
 			case 0x04: //IPv6
 				addr = net.TCPAddr{b[4:20], port, ""}
+				if ptcp.LogLevel > 0 {
+					fmt.Println("Socks:", addr.IP.String(), addr.Port)
+				}
 				conn, err = net.DialTCP("tcp", nil, &addr)
 				client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 			default:
@@ -247,6 +256,7 @@ func SNIProxy(listenAddr string) {
 }
 
 var configFiles = flag.String("c", "default.conf", "Config")
+var hostsFile = flag.String("hosts", "", "Hosts")
 var socksListenAddr = flag.String("socks", "", "Socks5")
 var sniListenAddr = flag.String("sni", "", "SNIProxy")
 var device = flag.String("device", "", "Device")
@@ -267,6 +277,15 @@ func main() {
 	ptcp.Init()
 	for _, filename := range strings.Split(*configFiles, ",") {
 		err := ptcp.LoadConfig(filename)
+		if err != nil {
+			if ptcp.LogLevel > 0 {
+				log.Println(err)
+			}
+			return
+		}
+	}
+	if *hostsFile != "" {
+		err := ptcp.LoadHosts(*hostsFile)
 		if err != nil {
 			if ptcp.LogLevel > 0 {
 				log.Println(err)
