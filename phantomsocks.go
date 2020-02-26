@@ -19,7 +19,6 @@ func handleSocksProxy(client net.Conn) {
 	defer client.Close()
 
 	host := ""
-	var addr net.TCPAddr
 	var conf ptcp.Config
 	var ok bool
 
@@ -39,7 +38,7 @@ func handleSocksProxy(client net.Conn) {
 
 			switch b[3] {
 			case 0x01: //IPv4
-				addr = net.TCPAddr{b[4:8], port, ""}
+				addr := net.TCPAddr{b[4:8], port, ""}
 				conf, ok := ptcp.ConfigLookup(addr.IP.String())
 				if ok {
 					if ptcp.LogLevel > 0 {
@@ -60,24 +59,12 @@ func handleSocksProxy(client net.Conn) {
 				host = string(b[5 : 5+addrLen])
 				conf, ok = ptcp.ConfigLookup(host)
 				if ok {
-					ips := ptcp.NSLookup(host, 1)
 					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", host, port, ips)
-					}
-
-					ip := net.ParseIP(ips[rand.Intn(len(ips))])
-					if ip == nil {
-						return
-					}
-					ip4 := ip.To4()
-					if ip4 != nil {
-						addr = net.TCPAddr{ip4, port, ""}
-					} else {
-						addr = net.TCPAddr{ip, port, ""}
+						fmt.Println("Socks:", host, port)
 					}
 
 					if conf.Option == 0 {
-						conn, err = net.DialTCP("tcp", nil, &addr)
+						conn, err = ptcp.Dial(host, port, nil, nil)
 						if err != nil {
 							if ptcp.LogLevel > 0 {
 								log.Println(err)
@@ -110,7 +97,7 @@ func handleSocksProxy(client net.Conn) {
 							return
 						}
 
-						conn, err = ptcp.DialTCP(&addr, b[:n], &conf)
+						conn, err = ptcp.Dial(host, port, b[:n], &conf)
 						if err != nil {
 							if ptcp.LogLevel > 0 {
 								log.Println(host, err)
@@ -133,7 +120,7 @@ func handleSocksProxy(client net.Conn) {
 					_, err = client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 				}
 			case 0x04: //IPv6
-				addr = net.TCPAddr{b[4:20], port, ""}
+				addr := net.TCPAddr{b[4:20], port, ""}
 				if ptcp.LogLevel > 0 {
 					fmt.Println("Socks:", addr.IP.String(), addr.Port)
 				}

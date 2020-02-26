@@ -3,6 +3,7 @@ package phantomtcp
 import (
 	"fmt"
 	"log"
+
 	"sync"
 	"time"
 
@@ -46,7 +47,7 @@ var PortInfo6 [65536]chan *ConnectionInfo6
 
 var pcapHandle *pcap.Handle
 
-var mutex sync.Mutex
+var mutex sync.RWMutex
 
 func ConnectionMonitor(deviceName string) {
 	snapLen := int32(65535)
@@ -70,59 +71,77 @@ func ConnectionMonitor(deviceName string) {
 
 	packetSource := gopacket.NewPacketSource(pcapHandle, pcapHandle.LinkType())
 	packetSource.NoCopy = true
-	for packet := range packetSource.Packets() {
-		if packet.NetworkLayer() == nil || packet.TransportLayer() == nil || packet.TransportLayer().LayerType() != layers.LayerTypeTCP {
+	//for packet := range packetSource.Packets() {
+	for {
+		packet, err := packetSource.NextPacket()
+		if err != nil {
+			logPrintln(1, err)
+			continue
+		}
+		if packet.NetworkLayer() == nil ||
+			packet.TransportLayer() == nil ||
+			packet.TransportLayer().LayerType() != layers.LayerTypeTCP {
 			fmt.Println("unexpected packet")
 			continue
 		}
 
 		eth := packet.LinkLayer().(*layers.Ethernet)
-		ipv4 := packet.NetworkLayer().(*layers.IPv4)
-		tcp := packet.TransportLayer().(*layers.TCP)
+		ip := packet.NetworkLayer()
+		switch ip := ip.(type) {
+		case *layers.IPv4:
+			tcp := packet.TransportLayer().(*layers.TCP)
 
-		dstPort := tcp.DstPort
-		portChan := PortInfo4[dstPort]
-		mutex.Lock()
-		if portChan != nil {
-			portChan <- &ConnectionInfo4{*eth, *ipv4, *tcp}
+			dstPort := tcp.DstPort
+			portChan := PortInfo4[dstPort]
+			if portChan != nil {
+				mutex.Lock()
+				if portChan != nil {
+					portChan <- &ConnectionInfo4{*eth, *ip, *tcp}
+				}
+				mutex.Unlock()
+			}
+		case *layers.IPv6:
+			tcp := packet.TransportLayer().(*layers.TCP)
+
+			dstPort := tcp.DstPort
+			portChan := PortInfo6[dstPort]
+			if portChan != nil {
+				mutex.Lock()
+				if portChan != nil {
+					portChan <- &ConnectionInfo6{*eth, *ip, *tcp}
+				}
+				mutex.Unlock()
+			}
 		}
-		mutex.Unlock()
 	}
 }
 
-func CreatePortChan(port int) {
+func CreatePortChan(port int) chan *ConnectionInfo4 {
 	portChan := make(chan *ConnectionInfo4)
 	PortInfo4[port] = portChan
-}
-
-func GetConnInfo(port int) *ConnectionInfo4 {
-	portChan := PortInfo4[port]
-
-	var connInfo *ConnectionInfo4
-	select {
-	case connInfo, _ = <-portChan:
-	case <-time.After(time.Second):
-		PortInfo4[port] = nil
-		close(portChan)
-		return nil
-	}
-
-	mutex.Lock()
-	PortInfo4[port] = nil
-	mutex.Unlock()
-	close(portChan)
-
-	return connInfo
+	return portChan
 }
 
 func DeletePortChan(port int) {
 	portChan := PortInfo4[port]
-	if portChan != nil {
-		mutex.Lock()
-		PortInfo4[port] = nil
-		mutex.Unlock()
-		close(portChan)
+	PortInfo4[port] = nil
+
+	mutex.RLock()
+	close(portChan)
+	mutex.RUnlock()
+}
+
+func GetConnInfo(portChan chan *ConnectionInfo4) *ConnectionInfo4 {
+	select {
+	case connInfo, ok := <-portChan:
+		if ok {
+			return connInfo
+		}
+	case <-time.After(time.Millisecond * 100):
+		return nil
 	}
+
+	return nil
 }
 
 func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config, count int) error {
