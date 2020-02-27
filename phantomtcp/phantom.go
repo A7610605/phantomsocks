@@ -3,6 +3,7 @@ package phantomtcp
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ const (
 	OPT_SEQ    = 0x1 << 6
 	OPT_HTTPS  = 0x1 << 7
 	OPT_MSS    = 0x1 << 8
+	OPT_STRIP  = 0x1 << 9
 	OPT_TFO    = 0x10000 << 0
 	OPT_SYN    = 0x10000 << 1
 	OPT_NOFLAG = 0x10000 << 2
@@ -56,6 +58,7 @@ var MethodMap = map[string]uint32{
 	"ipopt":   OPT_IPOPT,
 	"seq":     OPT_SEQ,
 	"https":   OPT_HTTPS,
+	"strip":   OPT_STRIP,
 	"tfo":     OPT_TFO,
 	"syn":     OPT_SYN,
 	"no-flag": OPT_NOFLAG,
@@ -160,6 +163,62 @@ func getHost(b []byte) (offset int, length int) {
 	}
 
 	return
+}
+
+func HttpMove(conn net.Conn, host string, b []byte) bool {
+	data := make([]byte, 1460)
+	n := 0
+	if host == "" {
+		copy(data[:], []byte("HTTP/1.1 200 OK"))
+		n += 15
+	} else if host == "https" {
+		copy(data[:], []byte("HTTP/1.1 302 Found\r\nLocation: https://"))
+		n += 38
+
+		header := string(b)
+		start := strings.Index(header, "Host: ") + 6
+		end := strings.Index(header[start:], "\r\n") + start
+		copy(data[n:], []byte(header[start:end]))
+		n += end - start
+
+		start = 4
+		end = strings.Index(header[start:], " ") + start
+		copy(data[n:], []byte(header[start:end]))
+		n += end - start
+	} else {
+		copy(data[:], []byte("HTTP/1.1 302 Found\r\nLocation: "))
+		n += 30
+		copy(data[n:], []byte(host))
+		n += len(host)
+
+		start := 4
+		header := string(b)
+		end := strings.Index(header[start:], " ") + start
+		copy(data[n:], []byte(header[start:end]))
+		n += end - start
+	}
+
+	copy(data[n:], []byte("\r\nCache-Control: private\r\nServer: pinocchio\r\nContent-Length: 0\r\n\r\n"))
+	n += 66
+	conn.Write(data[:n])
+	return true
+}
+
+func DialStrip(host string, fronting string) (*tls.Conn, error) {
+	var conf *tls.Config
+	if fronting == "" {
+		conf = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	} else {
+		conf = &tls.Config{
+			ServerName:         fronting,
+			InsecureSkipVerify: true,
+		}
+	}
+
+	conn, err := tls.Dial("tcp", net.JoinHostPort(host, "443"), conf)
+	return conn, err
 }
 
 func getMyIPv6() net.IP {
