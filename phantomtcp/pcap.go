@@ -3,7 +3,6 @@ package phantomtcp
 import (
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -40,8 +39,10 @@ type ConnectionInfo6 struct {
 	TCP layers.TCP
 }
 
-var PortInfo4 [65536]chan *ConnectionInfo4
-var PortInfo6 [65536]chan *ConnectionInfo6
+var ConnPayload4 [65536]*[]byte
+var ConnPayload6 [65536]*[]byte
+var ConnInfo4 [65536]*ConnectionInfo4
+var ConnInfo6 [65536]*ConnectionInfo6
 
 var pcapHandle *pcap.Handle
 
@@ -81,43 +82,18 @@ func ConnectionMonitor(deviceName string) {
 			tcp := packet.TransportLayer().(*layers.TCP)
 
 			srcPort := tcp.SrcPort
-			portChan := PortInfo4[srcPort]
-			if portChan != nil {
-				PortInfo4[srcPort] = nil
-				portChan <- &ConnectionInfo4{*eth, *ip, *tcp}
+			if ConnPayload4[srcPort] != nil {
+				ConnInfo4[srcPort] = &ConnectionInfo4{*eth, *ip, *tcp}
 			}
 		case *layers.IPv6:
 			tcp := packet.TransportLayer().(*layers.TCP)
 
 			srcPort := tcp.SrcPort
-			portChan := PortInfo6[srcPort]
-			if portChan != nil {
-				PortInfo6[srcPort] = nil
-				portChan <- &ConnectionInfo6{*eth, *ip, *tcp}
+			if ConnPayload6[srcPort] != nil {
+				ConnInfo6[srcPort] = &ConnectionInfo6{*eth, *ip, *tcp}
 			}
 		}
 	}
-}
-
-func CreatePortChan(port int) chan *ConnectionInfo4 {
-	portChan := make(chan *ConnectionInfo4)
-	PortInfo4[port] = portChan
-	time.Sleep(time.Millisecond)
-	return portChan
-}
-
-func GetConnInfo(portChan chan *ConnectionInfo4) *ConnectionInfo4 {
-	select {
-	case connInfo, ok := <-portChan:
-		if ok {
-			return connInfo
-		}
-		return nil
-	case <-time.After(time.Millisecond):
-		return nil
-	}
-
-	return nil
 }
 
 func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config, count int) error {

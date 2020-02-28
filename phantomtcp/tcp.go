@@ -76,8 +76,6 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 					continue
 				}
 
-				portChan := CreatePortChan(sport)
-
 				var raddr *net.TCPAddr
 				ip4 := ip.To4()
 				if ip4 != nil {
@@ -86,19 +84,20 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 					raddr = &net.TCPAddr{ip, port, ""}
 				}
 
+				ConnPayload4[sport] = &b
 				conn, err = net.DialTCP("tcp", laddr, raddr)
-				PortInfo4[sport] = nil
+				ConnPayload4[sport] = nil
 
 				if err != nil {
-					close(portChan)
+					ConnInfo4[sport] = nil
 					if IsNormalError(err) {
 						continue
 					}
 					return nil, err
 				}
 
-				connInfo = GetConnInfo(portChan)
-				close(portChan)
+				connInfo = ConnInfo4[sport]
+				ConnInfo4[sport] = nil
 				if connInfo != nil {
 					logPrintln(2, address, port, ip)
 					break
@@ -185,25 +184,27 @@ func DialTCP(addr *net.TCPAddr, b []byte, conf *Config) (net.Conn, error) {
 				sport := rand.Intn(65535-1024) + 1024
 				laddr := &net.TCPAddr{Port: sport}
 
-				portChan := CreatePortChan(sport)
+				ConnPayload4[sport] = &b
 				conn, err = net.DialTCP("tcp", laddr, addr)
+				ConnPayload4[sport] = nil
 
 				if err != nil {
-					PortInfo4[sport] = nil
-					close(portChan)
+					ConnInfo4[sport] = nil
 					if IsNormalError(err) {
 						continue
 					}
 					return nil, err
 				}
 
-				connInfo = GetConnInfo(portChan)
-				if connInfo == nil {
-					close(portChan)
-					return nil, errors.New("connection does not exist")
+				connInfo = ConnInfo4[sport]
+				ConnInfo4[sport] = nil
+				if connInfo != nil {
+					break
 				}
+			}
 
-				break
+			if connInfo == nil {
+				return nil, errors.New("connection does not exist")
 			}
 
 			fakepayload := make([]byte, len(b))
