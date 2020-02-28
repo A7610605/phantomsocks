@@ -66,7 +66,7 @@ func handleSocksProxy(client net.Conn) {
 				conf, ok = ptcp.ConfigLookup(host)
 				if ok {
 					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", host, port)
+						fmt.Println("Socks:", host, port, conf.Option)
 					}
 
 					if conf.Option == 0 {
@@ -118,6 +118,11 @@ func handleSocksProxy(client net.Conn) {
 									return
 								}
 								_, err = conn.Write(b[:n])
+							} else if conf.Option&ptcp.OPT_HTTP != 0 {
+								ips := ptcp.NSLookup(host, 1)
+								addr := ips[rand.Intn(len(ips))] + ":80"
+								ptcp.HttpProxy(client, host, addr, b[:n])
+								return
 							}
 						}
 

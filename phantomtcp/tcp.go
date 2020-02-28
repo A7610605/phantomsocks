@@ -43,7 +43,8 @@ func IsNormalError(err error) bool {
 	if !ok {
 		return false
 	}
-	if errErrno == syscall.ECONNREFUSED ||
+	if errErrno == syscall.EADDRINUSE ||
+		errErrno == syscall.ECONNREFUSED ||
 		errErrno == syscall.ECONNRESET {
 		return true
 	}
@@ -88,23 +89,16 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 				conn, err = net.DialTCP("tcp", laddr, raddr)
 
 				if err != nil {
-					if IsAddressInUse(err) {
-						PortInfo4[sport] = nil
-						close(portChan)
+					PortInfo4[sport] = nil
+					close(portChan)
+					if IsNormalError(err) {
 						continue
-					} else {
-						PortInfo4[sport] = nil
-						close(portChan)
-						if IsNormalError(err) {
-							continue
-						}
-						return nil, err
 					}
+					return nil, err
 				}
 
-				connInfo = GetConnInfo(portChan, sport)
+				connInfo = GetConnInfo(portChan)
 				if connInfo == nil {
-					PortInfo4[sport] = nil
 					close(portChan)
 					return nil, errors.New("connection does not exist")
 				}
@@ -193,23 +187,16 @@ func DialTCP(addr *net.TCPAddr, b []byte, conf *Config) (net.Conn, error) {
 				conn, err = net.DialTCP("tcp", laddr, addr)
 
 				if err != nil {
-					if IsAddressInUse(err) {
-						PortInfo4[sport] = nil
-						close(portChan)
+					PortInfo4[sport] = nil
+					close(portChan)
+					if IsNormalError(err) {
 						continue
-					} else {
-						PortInfo4[sport] = nil
-						close(portChan)
-						if IsNormalError(err) {
-							continue
-						}
-						return nil, err
 					}
+					return nil, err
 				}
 
-				connInfo = GetConnInfo(portChan, sport)
+				connInfo = GetConnInfo(portChan)
 				if connInfo == nil {
-					PortInfo4[sport] = nil
 					close(portChan)
 					return nil, errors.New("connection does not exist")
 				}

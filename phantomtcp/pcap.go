@@ -105,7 +105,7 @@ func CreatePortChan(port int) chan *ConnectionInfo4 {
 	return portChan
 }
 
-func GetConnInfo(portChan chan *ConnectionInfo4, port int) *ConnectionInfo4 {
+func GetConnInfo(portChan chan *ConnectionInfo4) *ConnectionInfo4 {
 	select {
 	case connInfo, ok := <-portChan:
 		if ok {
@@ -115,8 +115,6 @@ func GetConnInfo(portChan chan *ConnectionInfo4, port int) *ConnectionInfo4 {
 	case <-time.After(time.Second * 5):
 	}
 
-	PortInfo4[port] = nil
-	close(portChan)
 	return nil
 }
 

@@ -41,6 +41,7 @@ const (
 	OPT_HTTPS  = 0x1 << 7
 	OPT_MSS    = 0x1 << 8
 	OPT_STRIP  = 0x1 << 9
+	OPT_HTTP   = 0x1 << 10
 	OPT_TFO    = 0x10000 << 0
 	OPT_SYN    = 0x10000 << 1
 	OPT_NOFLAG = 0x10000 << 2
@@ -59,6 +60,7 @@ var MethodMap = map[string]uint32{
 	"seq":     OPT_SEQ,
 	"https":   OPT_HTTPS,
 	"strip":   OPT_STRIP,
+	"http":    OPT_HTTP,
 	"tfo":     OPT_TFO,
 	"syn":     OPT_SYN,
 	"no-flag": OPT_NOFLAG,
@@ -221,6 +223,61 @@ func DialStrip(host string, fronting string) (*tls.Conn, error) {
 	return conn, err
 }
 
+func HttpProxy(client net.Conn, host string, address string, b []byte) {
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	header := string(b)
+	header = strings.Replace(header, " HTTP/1.1\r", "    HTTP/1.1", 10)
+	header = strings.Replace(header, "GET ", "GET   ", 10)
+	header = strings.Replace(header, "Host: "+host, "Host:\t  "+strings.ToTitle(host), 1)
+	header = strings.Replace(header, "Referer: http", "X-Referer: \thttps", 1)
+	header = strings.Replace(header, "\r\n", "\n", 10)
+	_, err = conn.Write([]byte(header))
+	if err != nil {
+		logPrintln(1, err)
+		return
+	}
+
+	go func(conn net.Conn) {
+		data := make([]byte, 1460)
+		defer conn.Close()
+		for {
+			n, err := conn.Read(data)
+			if err != nil {
+				return
+			}
+			_, err = client.Write(data[:n])
+			if err != nil {
+				return
+			}
+		}
+	}(conn)
+
+	data := make([]byte, 1460)
+	for {
+		n, err := client.Read(data)
+		if err != nil {
+			return
+		}
+		header := string(data[:n])
+		header = strings.Replace(header, "GET /", "GET   /", 1)
+		header = strings.Replace(header, "POST /", "POST   /", 1)
+		header = strings.Replace(header, " HTTP/1.1\r", "    HTTP/1.1", 1)
+		header = strings.Replace(header, "Host: "+host, "HOST:\t  "+strings.ToTitle(host), 1)
+		header = strings.Replace(header, "Referer: http", "X-Referer: \thttps", 1)
+		header = strings.Replace(header, "\r\n", "\n", 10)
+
+		_, err = conn.Write([]byte(header))
+		if err != nil {
+			return
+		}
+	}
+}
+
 func getMyIPv6() net.IP {
 	s, err := net.InterfaceAddrs()
 	if err != nil {
@@ -316,7 +373,7 @@ func LoadConfig(filename string) error {
 							if ok {
 								option |= method
 							} else {
-								logPrintln(1, "Unsupported method: "+m)
+								logPrintln(1, "unsupported method: "+m)
 							}
 						}
 						logPrintln(2, string(line))
@@ -354,15 +411,17 @@ func LoadConfig(filename string) error {
 						ip := net.ParseIP(keys[0])
 						if ip == nil {
 							ips := strings.Split(keys[1], ",")
+
 							for _, ip := range ips {
 								config, ok := IPMap[ip]
+								_option := option
 								if ok {
-									option |= config.Option
+									_option |= config.Option
 									if syncMSS == 0 {
 										syncMSS = config.MSS
 									}
 								}
-								IPMap[ip] = Config{option, minTTL, maxTTL, syncMSS}
+								IPMap[ip] = Config{_option, minTTL, maxTTL, syncMSS}
 							}
 
 							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
