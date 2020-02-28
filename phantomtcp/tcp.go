@@ -87,9 +87,9 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 				}
 
 				conn, err = net.DialTCP("tcp", laddr, raddr)
+				PortInfo4[sport] = nil
 
 				if err != nil {
-					PortInfo4[sport] = nil
 					close(portChan)
 					if IsNormalError(err) {
 						continue
@@ -98,13 +98,15 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 				}
 
 				connInfo = GetConnInfo(portChan)
-				if connInfo == nil {
-					close(portChan)
-					return nil, errors.New("connection does not exist")
+				close(portChan)
+				if connInfo != nil {
+					logPrintln(2, address, port, ip)
+					break
 				}
+			}
 
-				logPrintln(2, address, port, ip)
-				break
+			if connInfo == nil {
+				return nil, errors.New("connection does not exist")
 			}
 
 			fakepayload := make([]byte, len(b))

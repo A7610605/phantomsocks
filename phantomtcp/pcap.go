@@ -83,8 +83,8 @@ func ConnectionMonitor(deviceName string) {
 			srcPort := tcp.SrcPort
 			portChan := PortInfo4[srcPort]
 			if portChan != nil {
-				portChan <- &ConnectionInfo4{*eth, *ip, *tcp}
 				PortInfo4[srcPort] = nil
+				portChan <- &ConnectionInfo4{*eth, *ip, *tcp}
 			}
 		case *layers.IPv6:
 			tcp := packet.TransportLayer().(*layers.TCP)
@@ -92,8 +92,8 @@ func ConnectionMonitor(deviceName string) {
 			srcPort := tcp.SrcPort
 			portChan := PortInfo6[srcPort]
 			if portChan != nil {
-				portChan <- &ConnectionInfo6{*eth, *ip, *tcp}
 				PortInfo6[srcPort] = nil
+				portChan <- &ConnectionInfo6{*eth, *ip, *tcp}
 			}
 		}
 	}
@@ -102,6 +102,7 @@ func ConnectionMonitor(deviceName string) {
 func CreatePortChan(port int) chan *ConnectionInfo4 {
 	portChan := make(chan *ConnectionInfo4)
 	PortInfo4[port] = portChan
+	time.Sleep(time.Millisecond)
 	return portChan
 }
 
@@ -109,10 +110,11 @@ func GetConnInfo(portChan chan *ConnectionInfo4) *ConnectionInfo4 {
 	select {
 	case connInfo, ok := <-portChan:
 		if ok {
-			close(portChan)
 			return connInfo
 		}
-	case <-time.After(time.Second * 5):
+		return nil
+	case <-time.After(time.Millisecond):
+		return nil
 	}
 
 	return nil
