@@ -108,7 +108,7 @@ func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config, c
 		IHL:      connInfo.IP.IHL,
 		TOS:      connInfo.IP.TOS,
 		Length:   0,
-		TTL:      config.TTL,
+		TTL:      connInfo.IP.TTL,
 		Protocol: connInfo.IP.Protocol,
 		SrcIP:    connInfo.IP.SrcIP,
 		DstIP:    connInfo.IP.DstIP,
@@ -122,6 +122,20 @@ func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config, c
 		ACK:        true,
 		PSH:        true,
 		Window:     connInfo.TCP.Window,
+	}
+
+	if config.Option&OPT_TTL != 0 {
+		ipLayer.TTL = config.TTL
+	}
+
+	if config.Option&OPT_WMD5 != 0 {
+		tcpLayer.Options = []layers.TCPOption{
+			layers.TCPOption{19, 18, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		}
+	}
+
+	if config.Option&OPT_WACK != 0 {
+		tcpLayer.Ack += uint32(tcpLayer.Window)
 	}
 
 	// And create the packet with the layers

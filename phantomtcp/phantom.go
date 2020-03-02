@@ -32,9 +32,9 @@ var Forward bool = false
 const (
 	OPT_NONE   = 0x0
 	OPT_TTL    = 0x1 << 0
-	OPT_MD5    = 0x1 << 1
-	OPT_ACK    = 0x1 << 2
-	OPT_CSUM   = 0x1 << 3
+	OPT_WMD5   = 0x1 << 1
+	OPT_WACK   = 0x1 << 2
+	OPT_WCSUM  = 0x1 << 3
 	OPT_BAD    = 0x1 << 4
 	OPT_IPOPT  = 0x1 << 5
 	OPT_SEQ    = 0x1 << 6
@@ -52,9 +52,9 @@ var MethodMap = map[string]uint32{
 	"none":    OPT_NONE,
 	"ttl":     OPT_TTL,
 	"mss":     OPT_MSS,
-	"w-md5":   OPT_MD5,
-	"w-ack":   OPT_ACK,
-	"no-csum": OPT_CSUM,
+	"w-md5":   OPT_WMD5,
+	"w-ack":   OPT_WACK,
+	"no-csum": OPT_WCSUM,
 	"bad":     OPT_BAD,
 	"ipopt":   OPT_IPOPT,
 	"seq":     OPT_SEQ,
