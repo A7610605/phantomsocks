@@ -117,10 +117,14 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 				}
 			}
 
-			err = SendFakePacket(connInfo, fakepayload, conf, 1)
-			if err != nil {
-				conn.Close()
-				return nil, err
+			count := 1
+			if conf.Option&OPT_WACK != 0 {
+				err = SendFakePacket(connInfo, fakepayload, conf, 1)
+				if err != nil {
+					conn.Close()
+					return nil, err
+				}
+				count = 2
 			}
 
 			_, err = conn.Write(b[:cut])
@@ -129,7 +133,7 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 				return nil, err
 			}
 
-			err = SendFakePacket(connInfo, fakepayload, conf, 1)
+			err = SendFakePacket(connInfo, fakepayload, conf, count)
 			if err != nil {
 				conn.Close()
 				return nil, err
