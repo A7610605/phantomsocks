@@ -124,14 +124,14 @@ func handleSocksProxy(client net.Conn) {
 								ptcp.HttpProxy(client, host, addr, b[:n])
 								return
 							}
-						}
-
-						conn, err = ptcp.Dial(host, port, b[:n], &conf)
-						if err != nil {
-							if ptcp.LogLevel > 0 {
-								log.Println(host, err)
+						} else {
+							conn, err = ptcp.Dial(host, port, b[:n], &conf)
+							if err != nil {
+								if ptcp.LogLevel > 0 {
+									log.Println(host, err)
+								}
+								return
 							}
-							return
 						}
 					}
 				} else {
@@ -193,40 +193,97 @@ func handleSNIProxy(client net.Conn) {
 			log.Println(err)
 			return
 		}
-		offset, length := ptcp.GetSNI(b[:n])
-		host := string(b[offset : offset+length])
-		conf, ok := ptcp.ConfigLookup(host)
-		if ok {
-			ips := ptcp.NSLookup(host, 1)
-			if ptcp.LogLevel > 0 {
-				log.Println(host, ips)
-			}
 
-			ip := net.ParseIP(ips[rand.Intn(len(ips))])
-			if ip == nil {
+		var host string
+		var port int
+		if b[0] == 0x16 {
+			offset, length := ptcp.GetSNI(b[:n])
+			if length == 0 {
 				return
 			}
-			ip4 := ip.To4()
-			if ip4 != nil {
-				addr = net.TCPAddr{ip4, 443, ""}
+			host = string(b[offset : offset+length])
+			port = 443
+		} else {
+			offset, length := ptcp.GetHost(b[:n])
+			if length == 0 {
+				return
+			}
+			host = string(b[offset : offset+length])
+			portstart := strings.Index(host, ":")
+			if portstart == -1 {
+				port = 80
 			} else {
-				addr = net.TCPAddr{ip, 443, ""}
-			}
-
-			conn, err = ptcp.DialTCP(&addr, b[:n], &conf)
-			if err != nil {
-				if ptcp.LogLevel > 0 {
-					log.Println(host, err)
+				port, err = strconv.Atoi(host[portstart+1:])
+				if err != nil {
+					return
 				}
-				return
+				host = host[:portstart]
+			}
+		}
+
+		conf, ok := ptcp.ConfigLookup(host)
+
+		if ok {
+			if port != 443 {
+				if conf.Option&ptcp.OPT_HTTPS != 0 {
+					ptcp.HttpMove(client, "https", b[:n])
+					return
+				} else if conf.Option&ptcp.OPT_STRIP != 0 {
+					ips := ptcp.NSLookup(host, 1)
+					ipaddr := ips[rand.Intn(len(ips))]
+					conn, err = ptcp.DialStrip(ipaddr, "")
+					if err != nil {
+						if ptcp.LogLevel > 0 {
+							log.Println(err)
+						}
+						return
+					}
+					_, err = conn.Write(b[:n])
+				} else if conf.Option&ptcp.OPT_HTTP != 0 {
+					ips := ptcp.NSLookup(host, 1)
+					addr := ips[rand.Intn(len(ips))]
+					addr = net.JoinHostPort(addr, strconv.Itoa(port))
+					ptcp.HttpProxy(client, host, addr, b[:n])
+					return
+				}
+			} else {
+				ips := ptcp.NSLookup(host, 1)
+				if ptcp.LogLevel > 0 {
+					log.Println(host, ips)
+				}
+
+				ip := net.ParseIP(ips[rand.Intn(len(ips))])
+				if ip == nil {
+					return
+				}
+				ip4 := ip.To4()
+				if ip4 != nil {
+					addr = net.TCPAddr{ip4, port, ""}
+				} else {
+					addr = net.TCPAddr{ip, port, ""}
+				}
+
+				conn, err = ptcp.DialTCP(&addr, b[:n], &conf)
+				if err != nil {
+					if ptcp.LogLevel > 0 {
+						log.Println(host, err)
+					}
+					return
+				}
 			}
 		} else {
-			host = net.JoinHostPort(host, "443")
+			host = net.JoinHostPort(host, strconv.Itoa(port))
 			if ptcp.LogLevel > 0 {
 				log.Println(host)
 			}
-			return
 			conn, err = net.Dial("tcp", host)
+			if err != nil {
+				if ptcp.LogLevel > 0 {
+					log.Println(err)
+				}
+				return
+			}
+			_, err = conn.Write(b[:n])
 			if err != nil {
 				if ptcp.LogLevel > 0 {
 					log.Println(err)

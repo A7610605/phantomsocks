@@ -30,41 +30,29 @@ var LogLevel = 0
 var Forward bool = false
 
 const (
-	OPT_NONE   = 0x0
-	OPT_TTL    = 0x1 << 0
-	OPT_WMD5   = 0x1 << 1
-	OPT_WACK   = 0x1 << 2
-	OPT_WCSUM  = 0x1 << 3
-	OPT_BAD    = 0x1 << 4
-	OPT_IPOPT  = 0x1 << 5
-	OPT_SEQ    = 0x1 << 6
-	OPT_HTTPS  = 0x1 << 7
-	OPT_MSS    = 0x1 << 8
-	OPT_STRIP  = 0x1 << 9
-	OPT_HTTP   = 0x1 << 10
-	OPT_TFO    = 0x10000 << 0
-	OPT_SYN    = 0x10000 << 1
-	OPT_NOFLAG = 0x10000 << 2
-	OPT_QUIC   = 0x10000 << 3
+	OPT_NONE  = 0x0
+	OPT_TTL   = 0x1 << 0
+	OPT_MSS   = 0x1 << 1
+	OPT_WMD5  = 0x1 << 2
+	OPT_WACK  = 0x1 << 3
+	OPT_WCSUM = 0x1 << 4
+	OPT_HTTPS = 0x1 << 5
+	OPT_STRIP = 0x1 << 7
+	OPT_HTTP  = 0x1 << 7
+	OPT_MODE2 = 0x1 << 8
 )
 
 var MethodMap = map[string]uint32{
-	"none":    OPT_NONE,
-	"ttl":     OPT_TTL,
-	"mss":     OPT_MSS,
-	"w-md5":   OPT_WMD5,
-	"w-ack":   OPT_WACK,
-	"no-csum": OPT_WCSUM,
-	"bad":     OPT_BAD,
-	"ipopt":   OPT_IPOPT,
-	"seq":     OPT_SEQ,
-	"https":   OPT_HTTPS,
-	"strip":   OPT_STRIP,
-	"http":    OPT_HTTP,
-	"tfo":     OPT_TFO,
-	"syn":     OPT_SYN,
-	"no-flag": OPT_NOFLAG,
-	"quic":    OPT_QUIC,
+	"none":   OPT_NONE,
+	"ttl":    OPT_TTL,
+	"mss":    OPT_MSS,
+	"w-md5":  OPT_WMD5,
+	"w-ack":  OPT_WACK,
+	"w-csum": OPT_WCSUM,
+	"https":  OPT_HTTPS,
+	"strip":  OPT_STRIP,
+	"http":   OPT_HTTP,
+	"mode2":  OPT_MODE2,
 }
 
 var Logger *log.Logger
@@ -96,6 +84,19 @@ func ConfigLookup(name string) (Config, bool) {
 	}
 
 	return Config{0, 0, 0, 0}, false
+}
+
+func GetHost(b []byte) (offset int, length int) {
+	header := string(b)
+	offset = strings.Index(header, "Host: ") + 6
+	if offset == -1 {
+		return 0, 0
+	}
+	length = strings.Index(header[offset:], "\r\n")
+	if length == -1 {
+		return 0, 0
+	}
+	return
 }
 
 func GetSNI(b []byte) (offset int, length int) {
