@@ -3,6 +3,7 @@ package phantomtcp
 import (
 	"fmt"
 	"log"
+	"syscall"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -27,22 +28,16 @@ func DevicePrint() {
 	}
 }
 
-type ConnectionInfo4 struct {
-	Eth layers.Ethernet
-	IP  layers.IPv4
-	TCP layers.TCP
-}
-
-type ConnectionInfo6 struct {
-	Eth layers.Ethernet
-	IP  layers.IPv6
-	TCP layers.TCP
+type ConnectionInfo struct {
+	Link gopacket.LinkLayer
+	IP   gopacket.NetworkLayer
+	TCP  layers.TCP
 }
 
 var ConnPayload4 [65536]*[]byte
 var ConnPayload6 [65536]*[]byte
-var ConnInfo4 [65536]*ConnectionInfo4
-var ConnInfo6 [65536]*ConnectionInfo6
+var ConnInfo4 [65536]*ConnectionInfo
+var ConnInfo6 [65536]*ConnectionInfo
 
 var pcapHandle *pcap.Handle
 
@@ -75,7 +70,7 @@ func ConnectionMonitor(deviceName string) {
 			continue
 		}
 
-		eth := packet.LinkLayer().(*layers.Ethernet)
+		link := packet.LinkLayer()
 		ip := packet.NetworkLayer()
 		switch ip := ip.(type) {
 		case *layers.IPv4:
@@ -83,36 +78,23 @@ func ConnectionMonitor(deviceName string) {
 
 			srcPort := tcp.SrcPort
 			if ConnPayload4[srcPort] != nil {
-				ConnInfo4[srcPort] = &ConnectionInfo4{*eth, *ip, *tcp}
+				ConnInfo4[srcPort] = &ConnectionInfo{link, ip, *tcp}
 			}
 		case *layers.IPv6:
 			tcp := packet.TransportLayer().(*layers.TCP)
 
 			srcPort := tcp.SrcPort
 			if ConnPayload6[srcPort] != nil {
-				ConnInfo6[srcPort] = &ConnectionInfo6{*eth, *ip, *tcp}
+				ConnInfo6[srcPort] = &ConnectionInfo{link, ip, *tcp}
 			}
 		}
 	}
 }
 
-func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config, count int) error {
-	ethernetLayer := &layers.Ethernet{
-		SrcMAC:       connInfo.Eth.SrcMAC,
-		DstMAC:       connInfo.Eth.DstMAC,
-		EthernetType: connInfo.Eth.EthernetType,
-		Length:       connInfo.Eth.Length,
-	}
-	ipLayer := &layers.IPv4{
-		Version:  connInfo.IP.Version,
-		IHL:      connInfo.IP.IHL,
-		TOS:      connInfo.IP.TOS,
-		Length:   0,
-		TTL:      connInfo.IP.TTL,
-		Protocol: connInfo.IP.Protocol,
-		SrcIP:    connInfo.IP.SrcIP,
-		DstIP:    connInfo.IP.DstIP,
-	}
+func SendFakePacket(connInfo *ConnectionInfo, payload []byte, config *Config, count int) error {
+	linkLayer := connInfo.Link
+	ipLayer := connInfo.IP
+
 	tcpLayer := &layers.TCP{
 		SrcPort:    connInfo.TCP.SrcPort,
 		DstPort:    connInfo.TCP.DstPort,
@@ -122,10 +104,6 @@ func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config, c
 		ACK:        true,
 		PSH:        true,
 		Window:     connInfo.TCP.Window,
-	}
-
-	if config.Option&OPT_TTL != 0 {
-		ipLayer.TTL = config.TTL
 	}
 
 	if config.Option&OPT_WMD5 != 0 {
@@ -146,22 +124,77 @@ func SendFakePacket(connInfo *ConnectionInfo4, payload []byte, config *Config, c
 
 	tcpLayer.SetNetworkLayerForChecksum(ipLayer)
 
-	gopacket.SerializeLayers(
-		buffer,
-		options,
-		ethernetLayer,
-		ipLayer,
-		tcpLayer,
-		gopacket.Payload(payload),
-	)
+	switch link := linkLayer.(type) {
+	case *layers.Ethernet:
+		switch ip := ipLayer.(type) {
+		case *layers.IPv4:
+			if config.Option&OPT_TTL != 0 {
+				ip.TTL = config.TTL
+			}
+			gopacket.SerializeLayers(buffer, options,
+				link, ip, tcpLayer, gopacket.Payload(payload),
+			)
+		case *layers.IPv6:
+			if config.Option&OPT_TTL != 0 {
+				ip.HopLimit = config.TTL
+			}
+			gopacket.SerializeLayers(buffer, options,
+				link, ip, tcpLayer, gopacket.Payload(payload),
+			)
+		}
+		outgoingPacket := buffer.Bytes()
 
-	outgoingPacket := buffer.Bytes()
+		for i := 0; i < count; i++ {
+			err := pcapHandle.WritePacketData(outgoingPacket)
+			if err != nil {
+				return err
+			}
+		}
+	case *layers.LinuxSLL:
+		var sa syscall.Sockaddr
+		var domain int
 
-	for i := 0; i < count; i++ {
-		err := pcapHandle.WritePacketData(outgoingPacket)
+		switch ip := ipLayer.(type) {
+		case *layers.IPv4:
+			if config.Option&OPT_TTL != 0 {
+				ip.TTL = config.TTL
+			}
+			gopacket.SerializeLayers(buffer, options,
+				ip, tcpLayer, gopacket.Payload(payload),
+			)
+			var addr [4]byte
+			copy(addr[:4], ip.DstIP.To4()[:4])
+			sa = &syscall.SockaddrInet4{Addr: addr, Port: 0}
+			domain = syscall.AF_INET
+		case *layers.IPv6:
+			if config.Option&OPT_TTL != 0 {
+				ip.HopLimit = config.TTL
+			}
+			gopacket.SerializeLayers(buffer, options,
+				ip, tcpLayer, gopacket.Payload(payload),
+			)
+			var addr [16]byte
+			copy(addr[:16], ip.DstIP[:16])
+			sa = &syscall.SockaddrInet6{Addr: addr, Port: 0}
+			domain = syscall.AF_INET6
+		}
+
+		raw_fd, err := syscall.Socket(domain, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
 		if err != nil {
+			syscall.Close(raw_fd)
 			return err
 		}
+		outgoingPacket := buffer.Bytes()
+
+		for i := 0; i < count; i++ {
+			err = syscall.Sendto(raw_fd, outgoingPacket, 0, sa)
+			if err != nil {
+				syscall.Close(raw_fd)
+				return err
+			}
+		}
+		syscall.Close(raw_fd)
 	}
+
 	return nil
 }

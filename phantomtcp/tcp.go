@@ -65,7 +65,7 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 		cut := offset + length/2
 
 		if length > 0 {
-			var connInfo *ConnectionInfo4
+			var connInfo *ConnectionInfo
 			for i := 0; i < 5; i++ {
 				sport := rand.Intn(65535-1024) + 1024
 				laddr := &net.TCPAddr{Port: sport}
@@ -183,7 +183,7 @@ func DialTCP(addr *net.TCPAddr, b []byte, conf *Config) (net.Conn, error) {
 		cut := offset + length/2
 
 		if length > 0 {
-			var connInfo *ConnectionInfo4
+			var connInfo *ConnectionInfo
 			for i := 0; i < 5; i++ {
 				sport := rand.Intn(65535-1024) + 1024
 				laddr := &net.TCPAddr{Port: sport}
