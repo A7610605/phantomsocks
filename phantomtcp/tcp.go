@@ -51,6 +51,37 @@ func IsNormalError(err error) bool {
 	return false
 }
 
+func DialConnInfo(laddr, raddr *net.TCPAddr) (*net.TCPConn, *ConnectionInfo, error) {
+	ip4 := raddr.IP.To4()
+	if ip4 != nil {
+		ConnSyn4[laddr.Port] = true
+		conn, err := net.DialTCP("tcp", laddr, raddr)
+		ConnSyn4[laddr.Port] = false
+
+		if err != nil {
+			ConnInfo4[laddr.Port] = nil
+			return nil, nil, err
+		}
+
+		connInfo := ConnInfo4[laddr.Port]
+		ConnInfo4[laddr.Port] = nil
+		return conn, connInfo, nil
+	} else {
+		ConnSyn6[laddr.Port] = true
+		conn, err := net.DialTCP("tcp", laddr, raddr)
+		ConnSyn6[laddr.Port] = false
+
+		if err != nil {
+			ConnInfo6[laddr.Port] = nil
+			return nil, nil, err
+		}
+
+		connInfo := ConnInfo6[laddr.Port]
+		ConnInfo6[laddr.Port] = nil
+		return conn, connInfo, nil
+	}
+}
+
 func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 	var err error
 	var conn net.Conn
@@ -76,28 +107,16 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 					continue
 				}
 
-				var raddr *net.TCPAddr
-				ip4 := ip.To4()
-				if ip4 != nil {
-					raddr = &net.TCPAddr{ip4, port, ""}
-				} else {
-					raddr = &net.TCPAddr{ip, port, ""}
-				}
-
-				ConnPayload4[sport] = &b
-				conn, err = net.DialTCP("tcp", laddr, raddr)
-				ConnPayload4[sport] = nil
+				raddr := &net.TCPAddr{ip, port, ""}
+				conn, connInfo, err = DialConnInfo(laddr, raddr)
 
 				if err != nil {
-					ConnInfo4[sport] = nil
 					if IsNormalError(err) {
 						continue
 					}
 					return nil, err
 				}
 
-				connInfo = ConnInfo4[sport]
-				ConnInfo4[sport] = nil
 				if connInfo != nil {
 					logPrintln(2, address, port, ip)
 					break
@@ -188,20 +207,15 @@ func DialTCP(addr *net.TCPAddr, b []byte, conf *Config) (net.Conn, error) {
 				sport := rand.Intn(65535-1024) + 1024
 				laddr := &net.TCPAddr{Port: sport}
 
-				ConnPayload4[sport] = &b
-				conn, err = net.DialTCP("tcp", laddr, addr)
-				ConnPayload4[sport] = nil
+				conn, connInfo, err = DialConnInfo(laddr, addr)
 
 				if err != nil {
-					ConnInfo4[sport] = nil
 					if IsNormalError(err) {
 						continue
 					}
 					return nil, err
 				}
 
-				connInfo = ConnInfo4[sport]
-				ConnInfo4[sport] = nil
 				if connInfo != nil {
 					break
 				}

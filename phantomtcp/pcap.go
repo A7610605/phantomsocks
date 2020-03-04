@@ -34,8 +34,8 @@ type ConnectionInfo struct {
 	TCP  layers.TCP
 }
 
-var ConnPayload4 [65536]*[]byte
-var ConnPayload6 [65536]*[]byte
+var ConnSyn4 [65536]bool
+var ConnSyn6 [65536]bool
 var ConnInfo4 [65536]*ConnectionInfo
 var ConnInfo6 [65536]*ConnectionInfo
 
@@ -77,14 +77,14 @@ func ConnectionMonitor(deviceName string) {
 			tcp := packet.TransportLayer().(*layers.TCP)
 
 			srcPort := tcp.SrcPort
-			if ConnPayload4[srcPort] != nil {
+			if ConnSyn4[srcPort] {
 				ConnInfo4[srcPort] = &ConnectionInfo{link, ip, *tcp}
 			}
 		case *layers.IPv6:
 			tcp := packet.TransportLayer().(*layers.TCP)
 
 			srcPort := tcp.SrcPort
-			if ConnPayload6[srcPort] != nil {
+			if ConnSyn6[srcPort] {
 				ConnInfo6[srcPort] = &ConnectionInfo{link, ip, *tcp}
 			}
 		}
