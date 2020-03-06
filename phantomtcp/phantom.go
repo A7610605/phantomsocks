@@ -506,3 +506,28 @@ func LoadHosts(filename string) error {
 
 	return nil
 }
+
+func GetPAC(address string) string {
+	rule := ""
+	for host := range DomainMap {
+		rule += fmt.Sprintf("\"%s\":1,\n", host)
+	}
+	Context := `var proxy = 'SOCKS %s';
+var rules = {
+%s}
+function FindProxyForURL(url, host) {
+	if (rules[host] != undefined) {
+		return proxy;
+	}
+	for (var i = 0; i < %d; i++){
+		var dot = host.indexOf(".");
+		if (dot == -1) {return 'DIRECT';}
+		host = host.slice(dot);
+		if (rules[host] != undefined) {return proxy;}
+		host = host.slice(1);
+	}
+	return 'DIRECT';
+}
+`
+	return fmt.Sprintf(Context, address, rule, SubdomainDepth)
+}

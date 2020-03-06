@@ -330,9 +330,39 @@ func SNIProxy(listenAddr string) {
 	}
 }
 
+func PACServer(listenAddr string, proxyAddr string) {
+	l, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		log.Panic(err)
+	}
+	pac := ptcp.GetPAC(proxyAddr)
+	response := []byte(fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Length:%d\r\n\r\n%s", len(pac), pac))
+	fmt.Println("PACServer:", listenAddr)
+	for {
+		client, err := l.Accept()
+		if err != nil {
+			log.Panic(err)
+		}
+
+		go func() {
+			defer client.Close()
+			var b [1024]byte
+			_, err := client.Read(b[:])
+			if err != nil {
+				return
+			}
+			_, err = client.Write(response)
+			if err != nil {
+				return
+			}
+		}()
+	}
+}
+
 var configFiles = flag.String("c", "default.conf", "Config")
 var hostsFile = flag.String("hosts", "", "Hosts")
 var socksListenAddr = flag.String("socks", "", "Socks5")
+var pacListenAddr = flag.String("pac", "", "PACServer")
 var sniListenAddr = flag.String("sni", "", "SNIProxy")
 var device = flag.String("device", "", "Device")
 var logLevel = flag.Int("log", 0, "LogLevel")
@@ -371,6 +401,9 @@ func main() {
 
 	if *socksListenAddr != "" {
 		go SocksProxy(*socksListenAddr)
+		if *pacListenAddr != "" {
+			go PACServer(*pacListenAddr, *socksListenAddr)
+		}
 	}
 
 	if *sniListenAddr != "" {
