@@ -197,6 +197,15 @@ func DialTCP(addr *net.TCPAddr, b []byte, conf *Config) (net.Conn, error) {
 	var err error
 	var conn net.Conn
 
+	if conf.Option&OPT_NAT64 != 0 {
+		ips, ok := DNSCache[addr.IP.String()]
+		if ok {
+			ip := ips[rand.Intn(len(ips))]
+			ip += addr.IP.String()
+			addr.IP = net.ParseIP(ip)
+		}
+	}
+
 	if b != nil {
 		offset, length := GetSNI(b)
 		cut := offset + length/2

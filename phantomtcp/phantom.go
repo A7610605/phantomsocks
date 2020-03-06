@@ -22,7 +22,6 @@ type Config struct {
 }
 
 var DomainMap map[string]Config
-var IPMap map[string]Config
 var DNSCache map[string][]string
 
 var SubdomainDepth = 2
@@ -39,7 +38,8 @@ const (
 	OPT_HTTPS = 0x1 << 5
 	OPT_STRIP = 0x1 << 7
 	OPT_HTTP  = 0x1 << 7
-	OPT_MODE2 = 0x1 << 8
+	OPT_NAT64 = 0x1 << 8
+	OPT_MODE2 = 0x1 << 9
 )
 
 var MethodMap = map[string]uint32{
@@ -52,6 +52,7 @@ var MethodMap = map[string]uint32{
 	"https":  OPT_HTTPS,
 	"strip":  OPT_STRIP,
 	"http":   OPT_HTTP,
+	"nat64":  OPT_NAT64,
 	"mode2":  OPT_MODE2,
 }
 
@@ -299,7 +300,6 @@ func getMyIPv6() net.IP {
 
 func Init() {
 	DomainMap = make(map[string]Config)
-	IPMap = make(map[string]Config)
 	DNSCache = make(map[string][]string)
 }
 
@@ -347,7 +347,6 @@ func LoadConfig(filename string) error {
 							return err
 						}
 						DNS = tcpAddr.String()
-						IPMap[tcpAddr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS}
 						logPrintln(2, string(line))
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
@@ -410,25 +409,14 @@ func LoadConfig(filename string) error {
 						}
 					} else {
 						ip := net.ParseIP(keys[0])
+						ips := strings.Split(keys[1], ",")
+
 						if ip == nil {
-							ips := strings.Split(keys[1], ",")
-
-							for _, ip := range ips {
-								config, ok := IPMap[ip]
-								_option := option
-								if ok {
-									_option |= config.Option
-									if syncMSS == 0 {
-										syncMSS = config.MSS
-									}
-								}
-								IPMap[ip] = Config{_option, minTTL, maxTTL, syncMSS}
-							}
-
 							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
 							DNSCache[keys[0]] = ips
 						} else {
-							IPMap[ip.String()] = Config{option, minTTL, maxTTL, syncMSS}
+							DomainMap[ip.String()] = Config{option, minTTL, maxTTL, syncMSS}
+							DNSCache[ip.String()] = ips
 						}
 					}
 				} else {
@@ -444,21 +432,15 @@ func LoadConfig(filename string) error {
 					} else {
 						addr, err := net.ResolveTCPAddr("tcp", keys[0])
 						if err == nil {
-							IPMap[addr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS}
+							DomainMap[addr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS}
 						} else {
 							if strings.Index(keys[0], "/") > 0 {
 								_, ipnet, err := net.ParseCIDR(keys[0])
 								if err == nil {
-									IPMap[ipnet.String()] = Config{option, minTTL, maxTTL, syncMSS}
+									DomainMap[ipnet.String()] = Config{option, minTTL, maxTTL, syncMSS}
 								}
 							} else {
-								ip := net.ParseIP(keys[0])
-
-								if ip != nil {
-									IPMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
-								} else {
-									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
-								}
+								DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
 							}
 						}
 					}
