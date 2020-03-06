@@ -42,11 +42,11 @@ func handleSocksProxy(client net.Conn) {
 			case 0x01: //IPv4
 				n, err = client.Read(b[:])
 				port := int(binary.BigEndian.Uint16(b[4:6]))
-				addr := net.TCPAddr{b[:4], port, ""}
+				addr := net.TCPAddr{[]byte{b[0], b[1], b[2], b[3]}, port, ""}
 				conf, ok := ptcp.ConfigLookup(addr.IP.String())
 				if ok {
 					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", addr.IP.String(), addr.Port)
+						fmt.Println("Socks:", addr.IP.String(), addr.Port, conf.Option)
 					}
 					client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 					n, err = client.Read(b[:])
