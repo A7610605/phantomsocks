@@ -409,7 +409,16 @@ func LoadConfig(filename string) error {
 						}
 					} else {
 						ip := net.ParseIP(keys[0])
-						ips := strings.Split(keys[1], ",")
+						var ips []string
+						if strings.HasPrefix(keys[1], "[") {
+							var ok bool
+							ips, ok = DNSCache[keys[1][1:len(keys[1])-1]]
+							if !ok {
+								log.Println(string(line), "bad domain")
+							}
+						} else {
+							ips = strings.Split(keys[1], ",")
+						}
 
 						if ip == nil {
 							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
