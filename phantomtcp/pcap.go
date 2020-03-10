@@ -118,7 +118,10 @@ func SendFakePacket(connInfo *ConnectionInfo, payload []byte, config *Config, co
 	buffer := gopacket.NewSerializeBuffer()
 	var options gopacket.SerializeOptions
 	options.FixLengths = true
-	options.ComputeChecksums = true
+
+	if config.Option&OPT_WCSUM == 0 {
+		options.ComputeChecksums = true
+	}
 
 	tcpLayer.SetNetworkLayerForChecksum(ipLayer)
 
