@@ -24,6 +24,7 @@ type Config struct {
 var DomainMap map[string]Config
 var DNSCache map[string][]string
 
+var DeviceName string = ""
 var SubdomainDepth = 2
 var LogLevel = 0
 var Forward bool = false

@@ -55,7 +55,7 @@ func DialConnInfo(laddr, raddr *net.TCPAddr) (*net.TCPConn, *ConnectionInfo, err
 	ip4 := raddr.IP.To4()
 	if ip4 != nil {
 		ConnSyn4[laddr.Port] = true
-		conn, err := net.DialTCP("tcp", laddr, raddr)
+		conn, err := net.DialTCP("tcp4", laddr, raddr)
 		ConnSyn4[laddr.Port] = false
 
 		if err != nil {
@@ -68,7 +68,7 @@ func DialConnInfo(laddr, raddr *net.TCPAddr) (*net.TCPConn, *ConnectionInfo, err
 		return conn, connInfo, nil
 	} else {
 		ConnSyn6[laddr.Port] = true
-		conn, err := net.DialTCP("tcp", laddr, raddr)
+		conn, err := net.DialTCP("tcp6", laddr, raddr)
 		ConnSyn6[laddr.Port] = false
 
 		if err != nil {
@@ -80,6 +80,40 @@ func DialConnInfo(laddr, raddr *net.TCPAddr) (*net.TCPConn, *ConnectionInfo, err
 		ConnInfo6[laddr.Port] = nil
 		return conn, connInfo, nil
 	}
+}
+
+func GetLocalAddr(name string, ipv6 bool) (*net.TCPAddr, error) {
+	inf, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil, err
+	}
+	addrs, _ := inf.Addrs()
+	for _, addr := range addrs {
+		localAddr, ok := addr.(*net.IPNet)
+		if ok {
+			sport := rand.Intn(65535-1024) + 1024
+			ip4 := localAddr.IP.To4()
+			if ipv6 {
+				if ip4 != nil || localAddr.IP[0] == 0xfe {
+					continue
+				}
+				var ip [16]byte
+				copy(ip[:16], localAddr.IP)
+				laddr := &net.TCPAddr{IP: ip[:], Port: sport}
+				return laddr, nil
+			} else {
+				if ip4 == nil {
+					continue
+				}
+				var ip [4]byte
+				copy(ip[:4], ip4)
+				laddr := &net.TCPAddr{IP: ip[:], Port: sport}
+				return laddr, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
@@ -98,14 +132,20 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 		if length > 0 {
 			var connInfo *ConnectionInfo
 			for i := 0; i < 5; i++ {
-				sport := rand.Intn(65535-1024) + 1024
-				laddr := &net.TCPAddr{Port: sport}
+
 				ipaddr := ips[rand.Intn(len(ips))]
 				ip := net.ParseIP(ipaddr)
 				if ip == nil {
 					logPrintln(1, address, "Bad Address:", ipaddr)
 					continue
 				}
+
+				sport := rand.Intn(65535-1024) + 1024
+				laddr := &net.TCPAddr{Port: sport}
+				//laddr, err := GetLocalAddr(DeviceName, ip.To4() == nil)
+				//if laddr == nil {
+				//	continue
+				//}
 
 				raddr := &net.TCPAddr{ip, port, ""}
 				conn, connInfo, err = DialConnInfo(laddr, raddr)

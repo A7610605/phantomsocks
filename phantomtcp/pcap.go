@@ -42,10 +42,10 @@ var ConnInfo6 [65536]*ConnectionInfo
 var pcapHandle *pcap.Handle
 
 func ConnectionMonitor(deviceName string) {
+	DeviceName = deviceName
+
 	snapLen := int32(65535)
-
-	filter := "tcp[13]=2 and (tcp dst port 443)"
-
+	filter := "(ip6[6]==6 and ip6[53]=2) or (tcp[13]=2 and (tcp dst port 443))"
 	fmt.Printf("Device: %v\n", deviceName)
 
 	var err error
@@ -72,17 +72,15 @@ func ConnectionMonitor(deviceName string) {
 
 		link := packet.LinkLayer()
 		ip := packet.NetworkLayer()
+		tcp := packet.TransportLayer().(*layers.TCP)
+
 		switch ip := ip.(type) {
 		case *layers.IPv4:
-			tcp := packet.TransportLayer().(*layers.TCP)
-
 			srcPort := tcp.SrcPort
 			if ConnSyn4[srcPort] {
 				ConnInfo4[srcPort] = &ConnectionInfo{link, ip, *tcp}
 			}
 		case *layers.IPv6:
-			tcp := packet.TransportLayer().(*layers.TCP)
-
 			srcPort := tcp.SrcPort
 			if ConnSyn6[srcPort] {
 				ConnInfo6[srcPort] = &ConnectionInfo{link, ip, *tcp}
