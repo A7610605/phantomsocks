@@ -226,61 +226,6 @@ func DialStrip(host string, fronting string) (*tls.Conn, error) {
 	return conn, err
 }
 
-func HttpProxy(client net.Conn, host string, address string, b []byte) {
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	header := string(b)
-	header = strings.Replace(header, " HTTP/1.1\r", "    HTTP/1.1", 10)
-	header = strings.Replace(header, "GET ", "GET   ", 10)
-	header = strings.Replace(header, "Host: "+host, "Host:\t  "+strings.ToTitle(host), 1)
-	header = strings.Replace(header, "Referer: http", "X-Referer: \thttps", 1)
-	header = strings.Replace(header, "\r\n", "\n", 10)
-	_, err = conn.Write([]byte(header))
-	if err != nil {
-		logPrintln(1, err)
-		return
-	}
-
-	go func(conn net.Conn) {
-		data := make([]byte, 1460)
-		defer conn.Close()
-		for {
-			n, err := conn.Read(data)
-			if err != nil {
-				return
-			}
-			_, err = client.Write(data[:n])
-			if err != nil {
-				return
-			}
-		}
-	}(conn)
-
-	data := make([]byte, 1460)
-	for {
-		n, err := client.Read(data)
-		if err != nil {
-			return
-		}
-		header := string(data[:n])
-		header = strings.Replace(header, "GET /", "GET   /", 1)
-		header = strings.Replace(header, "POST /", "POST   /", 1)
-		header = strings.Replace(header, " HTTP/1.1\r", "    HTTP/1.1", 1)
-		header = strings.Replace(header, "Host: "+host, "HOST:\t  "+strings.ToTitle(host), 1)
-		header = strings.Replace(header, "Referer: http", "X-Referer: \thttps", 1)
-		header = strings.Replace(header, "\r\n", "\n", 10)
-
-		_, err = conn.Write([]byte(header))
-		if err != nil {
-			return
-		}
-	}
-}
-
 func getMyIPv6() net.IP {
 	s, err := net.InterfaceAddrs()
 	if err != nil {

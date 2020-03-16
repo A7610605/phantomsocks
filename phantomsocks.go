@@ -103,7 +103,7 @@ func handleSocksProxy(client net.Conn) {
 							return
 						}
 
-						if port == 80 {
+						if b[0] != 0x16 {
 							if conf.Option&ptcp.OPT_HTTPS != 0 {
 								ptcp.HttpMove(client, "https", b[:n])
 								return
@@ -118,10 +118,15 @@ func handleSocksProxy(client net.Conn) {
 									return
 								}
 								_, err = conn.Write(b[:n])
-							} else if conf.Option&ptcp.OPT_HTTP != 0 {
-								ips := ptcp.NSLookup(host, 1)
-								addr := ips[rand.Intn(len(ips))] + ":80"
-								ptcp.HttpProxy(client, host, addr, b[:n])
+							} else {
+								conn, err = ptcp.HTTP(client, host, 80, b[:n], &conf)
+								if err != nil {
+									if ptcp.LogLevel > 0 {
+										log.Println(err)
+									}
+									return
+								}
+								io.Copy(client, conn)
 								return
 							}
 						} else {
@@ -183,8 +188,6 @@ func handleSocksProxy(client net.Conn) {
 func handleSNIProxy(client net.Conn) {
 	defer client.Close()
 
-	var addr net.TCPAddr
-
 	var conn net.Conn
 	{
 		var b [1500]byte
@@ -224,7 +227,11 @@ func handleSNIProxy(client net.Conn) {
 		conf, ok := ptcp.ConfigLookup(host)
 
 		if ok {
-			if port != 443 {
+			if ptcp.LogLevel > 0 {
+				fmt.Println("SNI:", host, port, conf.Option)
+			}
+
+			if b[0] != 0x16 {
 				if conf.Option&ptcp.OPT_HTTPS != 0 {
 					ptcp.HttpMove(client, "https", b[:n])
 					return
@@ -239,31 +246,19 @@ func handleSNIProxy(client net.Conn) {
 						return
 					}
 					_, err = conn.Write(b[:n])
-				} else if conf.Option&ptcp.OPT_HTTP != 0 {
-					ips := ptcp.NSLookup(host, 1)
-					addr := ips[rand.Intn(len(ips))]
-					addr = net.JoinHostPort(addr, strconv.Itoa(port))
-					ptcp.HttpProxy(client, host, addr, b[:n])
+				} else {
+					conn, err = ptcp.HTTP(client, host, port, b[:n], &conf)
+					if err != nil {
+						if ptcp.LogLevel > 0 {
+							log.Println(err)
+						}
+						return
+					}
+					io.Copy(client, conn)
 					return
 				}
 			} else {
-				ips := ptcp.NSLookup(host, 1)
-				if ptcp.LogLevel > 0 {
-					log.Println(host, ips)
-				}
-
-				ip := net.ParseIP(ips[rand.Intn(len(ips))])
-				if ip == nil {
-					return
-				}
-				ip4 := ip.To4()
-				if ip4 != nil {
-					addr = net.TCPAddr{ip4, port, ""}
-				} else {
-					addr = net.TCPAddr{ip, port, ""}
-				}
-
-				conn, err = ptcp.DialTCP(&addr, b[:n], &conf)
+				conn, err = ptcp.Dial(host, port, b[:n], &conf)
 				if err != nil {
 					if ptcp.LogLevel > 0 {
 						log.Println(host, err)

@@ -45,7 +45,7 @@ func ConnectionMonitor(deviceName string) {
 	DeviceName = deviceName
 
 	snapLen := int32(65535)
-	filter := "(ip6[6]==6 and ip6[53]=2) or (tcp[13]=2 and (tcp dst port 443))"
+	filter := "(ip6[6]==6 and ip6[53]=2) or (tcp[13]=2)"
 	fmt.Printf("Device: %v\n", deviceName)
 
 	var err error
