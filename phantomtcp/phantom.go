@@ -37,9 +37,9 @@ const (
 	OPT_WACK  = 0x1 << 3
 	OPT_WCSUM = 0x1 << 4
 	OPT_HTTPS = 0x1 << 5
-	OPT_STRIP = 0x1 << 7
-	OPT_HTTP  = 0x1 << 7
-	OPT_NAT64 = 0x1 << 8
+	OPT_STRIP = 0x1 << 6
+	OPT_NAT64 = 0x1 << 7
+	OPT_BIND  = 0x1 << 8
 	OPT_MODE2 = 0x1 << 9
 )
 
@@ -52,8 +52,8 @@ var MethodMap = map[string]uint32{
 	"w-csum": OPT_WCSUM,
 	"https":  OPT_HTTPS,
 	"strip":  OPT_STRIP,
-	"http":   OPT_HTTP,
 	"nat64":  OPT_NAT64,
+	"bind":   OPT_BIND,
 	"mode2":  OPT_MODE2,
 }
 

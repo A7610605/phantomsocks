@@ -222,6 +222,9 @@ func handleSNIProxy(client net.Conn) {
 				}
 				host = host[:portstart]
 			}
+			if net.ParseIP(host) != nil {
+				return
+			}
 		}
 
 		conf, ok := ptcp.ConfigLookup(host)
@@ -231,7 +234,15 @@ func handleSNIProxy(client net.Conn) {
 				fmt.Println("SNI:", host, port, conf.Option)
 			}
 
-			if b[0] != 0x16 {
+			if b[0] == 0x16 {
+				conn, err = ptcp.Dial(host, port, b[:n], &conf)
+				if err != nil {
+					if ptcp.LogLevel > 0 {
+						log.Println(host, err)
+					}
+					return
+				}
+			} else {
 				if conf.Option&ptcp.OPT_HTTPS != 0 {
 					ptcp.HttpMove(client, "https", b[:n])
 					return
@@ -255,14 +266,6 @@ func handleSNIProxy(client net.Conn) {
 						return
 					}
 					io.Copy(client, conn)
-					return
-				}
-			} else {
-				conn, err = ptcp.Dial(host, port, b[:n], &conf)
-				if err != nil {
-					if ptcp.LogLevel > 0 {
-						log.Println(host, err)
-					}
 					return
 				}
 			}
