@@ -120,7 +120,12 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 	var err error
 	var conn net.Conn
 
-	ips := NSLookup(address, 1)
+	var ips []string
+	if conf.Option&OPT_IPV6 != 0 {
+		ips = NSLookup(address, 28)
+	} else {
+		ips = NSLookup(address, 1)
+	}
 	if len(ips) == 0 {
 		return nil, errors.New("no such host")
 	}
@@ -142,10 +147,10 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 
 				var laddr *net.TCPAddr
 				sport := rand.Intn(65535-1024) + 1024
-				if conf.Option&OPT_BIND == 0 {
+				if conf.Device == "" {
 					laddr = &net.TCPAddr{Port: sport}
 				} else {
-					laddr, err = GetLocalAddr(DeviceName, sport, ip.To4() == nil)
+					laddr, err = GetLocalAddr(conf.Device, sport, ip.To4() == nil)
 					if laddr == nil {
 						continue
 					}
@@ -259,10 +264,10 @@ func DialTCP(addr *net.TCPAddr, b []byte, conf *Config) (net.Conn, error) {
 			for i := 0; i < 5; i++ {
 				var laddr *net.TCPAddr
 				sport := rand.Intn(65535-1024) + 1024
-				if conf.Option&OPT_BIND == 0 {
+				if conf.Device == "" {
 					laddr = &net.TCPAddr{Port: sport}
 				} else {
-					laddr, err = GetLocalAddr(DeviceName, sport, addr.IP.To4() == nil)
+					laddr, err = GetLocalAddr(conf.Device, sport, addr.IP.To4() == nil)
 					if laddr == nil {
 						continue
 					}
@@ -326,8 +331,8 @@ func DialTCP(addr *net.TCPAddr, b []byte, conf *Config) (net.Conn, error) {
 			return conn, err
 		} else {
 			var laddr *net.TCPAddr = nil
-			if conf.Option&OPT_BIND != 0 {
-				laddr, err = GetLocalAddr(DeviceName, 0, addr.IP.To4() == nil)
+			if conf.Device != "" {
+				laddr, err = GetLocalAddr(conf.Device, 0, addr.IP.To4() == nil)
 				if err != nil {
 					return nil, err
 				}
@@ -352,7 +357,12 @@ func HTTP(client net.Conn, address string, port int, b []byte, conf *Config) (ne
 	var err error
 	var conn net.Conn
 
-	ips := NSLookup(address, 1)
+	var ips []string
+	if conf.Option&OPT_IPV6 != 0 {
+		ips = NSLookup(address, 28)
+	} else {
+		ips = NSLookup(address, 1)
+	}
 	if len(ips) == 0 {
 		return nil, errors.New("no such host")
 	}
@@ -371,8 +381,16 @@ func HTTP(client net.Conn, address string, port int, b []byte, conf *Config) (ne
 					continue
 				}
 
+				var laddr *net.TCPAddr
 				sport := rand.Intn(65535-1024) + 1024
-				laddr := &net.TCPAddr{Port: sport}
+				if conf.Device == "" {
+					laddr = &net.TCPAddr{Port: sport}
+				} else {
+					laddr, err = GetLocalAddr(conf.Device, sport, ip.To4() == nil)
+					if laddr == nil {
+						continue
+					}
+				}
 
 				raddr := &net.TCPAddr{ip, port, ""}
 				conn, connInfo, err = DialConnInfo(laddr, raddr)
@@ -461,8 +479,17 @@ func HTTP(client net.Conn, address string, port int, b []byte, conf *Config) (ne
 			if ip == nil {
 				return nil, nil
 			}
+
+			var laddr *net.TCPAddr = nil
+			if conf.Device != "" {
+				laddr, err = GetLocalAddr(conf.Device, 0, ip.To4() == nil)
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			raddr := &net.TCPAddr{ip, port, ""}
-			conn, err = net.DialTCP("tcp", nil, raddr)
+			conn, err = net.DialTCP("tcp", laddr, raddr)
 			if err != nil {
 				return nil, err
 			}

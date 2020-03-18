@@ -46,7 +46,7 @@ func handleSocksProxy(client net.Conn) {
 				conf, ok := ptcp.ConfigLookup(addr.IP.String())
 				if ok {
 					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", addr.IP.String(), addr.Port, conf.Option)
+						fmt.Println("Socks:", addr.IP.String(), addr.Port, conf)
 					}
 					client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 					n, err = client.Read(b[:])
@@ -66,7 +66,7 @@ func handleSocksProxy(client net.Conn) {
 				conf, ok = ptcp.ConfigLookup(host)
 				if ok {
 					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", host, port, conf.Option)
+						fmt.Println("Socks:", host, port, conf)
 					}
 
 					if conf.Option == 0 {
@@ -231,7 +231,7 @@ func handleSNIProxy(client net.Conn) {
 
 		if ok {
 			if ptcp.LogLevel > 0 {
-				fmt.Println("SNI:", host, port, conf.Option)
+				fmt.Println("SNI:", host, port, conf)
 			}
 
 			if b[0] == 0x16 {
@@ -408,5 +408,6 @@ func main() {
 		go SNIProxy(*sniListenAddr)
 	}
 
-	ptcp.ConnectionMonitor(*device)
+	devices := strings.Split(*device, ",")
+	ptcp.ConnectionMonitor(devices)
 }

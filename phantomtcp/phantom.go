@@ -19,12 +19,12 @@ type Config struct {
 	TTL    byte
 	MAXTTL byte
 	MSS    uint16
+	Device string
 }
 
 var DomainMap map[string]Config
 var DNSCache map[string][]string
 
-var DeviceName string = ""
 var SubdomainDepth = 2
 var LogLevel = 0
 var Forward bool = false
@@ -39,8 +39,9 @@ const (
 	OPT_HTTPS = 0x1 << 5
 	OPT_STRIP = 0x1 << 6
 	OPT_NAT64 = 0x1 << 7
-	OPT_BIND  = 0x1 << 8
-	OPT_MODE2 = 0x1 << 9
+	OPT_IPV4  = 0x1 << 8
+	OPT_IPV6  = 0x1 << 9
+	OPT_MODE2 = 0x1 << 10
 )
 
 var MethodMap = map[string]uint32{
@@ -53,7 +54,8 @@ var MethodMap = map[string]uint32{
 	"https":  OPT_HTTPS,
 	"strip":  OPT_STRIP,
 	"nat64":  OPT_NAT64,
-	"bind":   OPT_BIND,
+	"ipv4":   OPT_IPV4,
+	"ipv6":   OPT_IPV6,
 	"mode2":  OPT_MODE2,
 }
 
@@ -85,7 +87,7 @@ func ConfigLookup(name string) (Config, bool) {
 		offset++
 	}
 
-	return Config{0, 0, 0, 0}, false
+	return Config{0, 0, 0, 0, ""}, false
 }
 
 func GetHost(b []byte) (offset int, length int) {
@@ -262,8 +264,7 @@ func LoadConfig(filename string) error {
 	var minTTL byte = 0
 	var maxTTL byte = 0
 	var syncMSS uint16 = 0
-	ipv6Enable := true
-	ipv4Enable := true
+	var device = ""
 
 	for {
 		line, _, err := br.ReadLine()
@@ -279,14 +280,12 @@ func LoadConfig(filename string) error {
 					if keys[0] == "server" {
 						var tcpAddr *net.TCPAddr
 						var err error
-						if ipv6Enable {
-							if ipv4Enable {
-								tcpAddr, err = net.ResolveTCPAddr("tcp", keys[1])
-							} else {
-								tcpAddr, err = net.ResolveTCPAddr("tcp6", keys[1])
-							}
-						} else {
+						if option&OPT_IPV6 != 0 {
+							tcpAddr, err = net.ResolveTCPAddr("tcp6", keys[1])
+						} else if option&OPT_IPV4 != 0 {
 							tcpAddr, err = net.ResolveTCPAddr("tcp4", keys[1])
+						} else {
+							tcpAddr, err = net.ResolveTCPAddr("tcp", keys[1])
 						}
 						if err != nil {
 							log.Println(string(line), err)
@@ -296,20 +295,6 @@ func LoadConfig(filename string) error {
 						logPrintln(2, string(line))
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
-						logPrintln(2, string(line))
-					} else if keys[0] == "ipv6" {
-						if keys[1] == "true" {
-							ipv6Enable = true
-						} else {
-							ipv6Enable = false
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "ipv4" {
-						if keys[1] == "true" {
-							ipv4Enable = true
-						} else {
-							ipv4Enable = false
-						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "method" {
 						option = OPT_NONE
@@ -347,6 +332,13 @@ func LoadConfig(filename string) error {
 						}
 						maxTTL = byte(ttl)
 						logPrintln(2, string(line))
+					} else if keys[0] == "device" {
+						if keys[1] == "default" {
+							device = ""
+						} else {
+							device = keys[1]
+						}
+						logPrintln(2, string(line))
 					} else if keys[0] == "subdomain" {
 						SubdomainDepth, err = strconv.Atoi(keys[1])
 						if err != nil {
@@ -367,36 +359,25 @@ func LoadConfig(filename string) error {
 						}
 
 						if ip == nil {
-							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
+							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, device}
 							DNSCache[keys[0]] = ips
 						} else {
-							DomainMap[ip.String()] = Config{option, minTTL, maxTTL, syncMSS}
+							DomainMap[ip.String()] = Config{option, minTTL, maxTTL, syncMSS, device}
 							DNSCache[ip.String()] = ips
 						}
 					}
 				} else {
-					if keys[0] == "ipv6" {
-						ipv6Enable = true
-						logPrintln(2, string(line))
-					} else if keys[0] == "ipv4" {
-						ipv4Enable = true
-						logPrintln(2, string(line))
-					} else if keys[0] == "forward" {
-						Forward = true
-						logPrintln(2, string(line))
+					addr, err := net.ResolveTCPAddr("tcp", keys[0])
+					if err == nil {
+						DomainMap[addr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS, device}
 					} else {
-						addr, err := net.ResolveTCPAddr("tcp", keys[0])
-						if err == nil {
-							DomainMap[addr.IP.String()] = Config{option, minTTL, maxTTL, syncMSS}
-						} else {
-							if strings.Index(keys[0], "/") > 0 {
-								_, ipnet, err := net.ParseCIDR(keys[0])
-								if err == nil {
-									DomainMap[ipnet.String()] = Config{option, minTTL, maxTTL, syncMSS}
-								}
-							} else {
-								DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS}
+						if strings.Index(keys[0], "/") > 0 {
+							_, ipnet, err := net.ParseCIDR(keys[0])
+							if err == nil {
+								DomainMap[ipnet.String()] = Config{option, minTTL, maxTTL, syncMSS, device}
 							}
+						} else {
+							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, device}
 						}
 					}
 				}
