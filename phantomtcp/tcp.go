@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"syscall"
+	"time"
 )
 
 const domainBytes = "abcdefghijklmnopqrstuvwxyz0123456789-"
@@ -116,32 +117,74 @@ func GetLocalAddr(name string, port int, ipv6 bool) (*net.TCPAddr, error) {
 	return nil, nil
 }
 
-func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
+const (
+	SO_ORIGINAL_DST      = 80
+	IP6T_SO_ORIGINAL_DST = 80
+)
+
+func GetOriginalDST(conn *net.TCPConn) (*net.TCPAddr, error) {
+	file, err := conn.File()
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	LocalAddr := conn.LocalAddr()
+	LocalTCPAddr, err := net.ResolveTCPAddr(LocalAddr.Network(), LocalAddr.String())
+
+	if LocalTCPAddr.IP.To4() == nil {
+		mtuinfo, err := syscall.GetsockoptIPv6MTUInfo(int(file.Fd()), syscall.IPPROTO_IPV6, IP6T_SO_ORIGINAL_DST)
+		if err != nil {
+			return nil, err
+		}
+
+		raw := mtuinfo.Addr
+		var ip net.IP = raw.Addr[:]
+
+		port := int(raw.Port&0xFF)<<8 | int(raw.Port&0xFF00)>>8
+		TCPAddr := net.TCPAddr{ip, port, ""}
+
+		if TCPAddr.IP.Equal(LocalTCPAddr.IP) {
+			return nil, nil
+		}
+
+		return &TCPAddr, nil
+	} else {
+		raw, err := syscall.GetsockoptIPv6Mreq(int(file.Fd()), syscall.IPPROTO_IP, SO_ORIGINAL_DST)
+		if err != nil {
+			return nil, err
+		}
+
+		var ip net.IP = raw.Multiaddr[4:8]
+		port := int(raw.Multiaddr[2])<<8 | int(raw.Multiaddr[3])
+		TCPAddr := net.TCPAddr{ip, port, ""}
+
+		if TCPAddr.IP.Equal(LocalTCPAddr.IP) {
+			return nil, nil
+		}
+
+		return &TCPAddr, nil
+	}
+
+	return nil, nil
+}
+
+func Dial(addresses []string, port int, b []byte, conf *Config) (net.Conn, error) {
 	var err error
 	var conn net.Conn
-
-	var ips []string
-	if conf.Option&OPT_IPV6 != 0 {
-		ips = NSLookup(address, 28)
-	} else {
-		ips = NSLookup(address, 1)
-	}
-	if len(ips) == 0 {
-		return nil, errors.New("no such host")
-	}
 
 	if b != nil {
 		offset, length := GetSNI(b)
 		cut := offset + length/2
 
 		if length > 0 {
+			rand.Seed(time.Now().UnixNano())
 			var connInfo *ConnectionInfo
 			for i := 0; i < 5; i++ {
-
-				ipaddr := ips[rand.Intn(len(ips))]
+				ipaddr := addresses[rand.Intn(len(addresses))]
 				ip := net.ParseIP(ipaddr)
 				if ip == nil {
-					logPrintln(1, address, "Bad Address:", ipaddr)
+					logPrintln(1, "Bad Address:", ipaddr)
 					continue
 				}
 
@@ -167,7 +210,7 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 				}
 
 				if connInfo != nil {
-					logPrintln(2, address, port, ip)
+					logPrintln(2, ip, port)
 					break
 				}
 			}
@@ -215,7 +258,7 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 
 			return conn, err
 		} else {
-			ip := net.ParseIP(ips[rand.Intn(len(ips))])
+			ip := net.ParseIP(addresses[rand.Intn(len(addresses))])
 			if ip == nil {
 				return nil, nil
 			}
@@ -232,7 +275,7 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 		}
 	}
 
-	ip := net.ParseIP(ips[rand.Intn(len(ips))])
+	ip := net.ParseIP(addresses[rand.Intn(len(addresses))])
 	if ip == nil {
 		return nil, nil
 	}
@@ -242,131 +285,11 @@ func Dial(address string, port int, b []byte, conf *Config) (net.Conn, error) {
 	return conn, err
 }
 
-func DialTCP(addr *net.TCPAddr, b []byte, conf *Config) (net.Conn, error) {
+func HTTP(client net.Conn, addresses []string, port int, b []byte, conf *Config) (net.Conn, error) {
 	var err error
 	var conn net.Conn
 
-	if conf.Option&OPT_NAT64 != 0 {
-		ips, ok := DNSCache[addr.IP.String()]
-		if ok {
-			ip := ips[rand.Intn(len(ips))]
-			ip += addr.IP.String()
-			addr.IP = net.ParseIP(ip)
-		}
-	}
-
-	if b != nil {
-		offset, length := GetSNI(b)
-		cut := offset + length/2
-
-		if length > 0 {
-			var connInfo *ConnectionInfo
-			for i := 0; i < 5; i++ {
-				var laddr *net.TCPAddr
-				sport := rand.Intn(65535-1024) + 1024
-				if conf.Device == "" {
-					laddr = &net.TCPAddr{Port: sport}
-				} else {
-					laddr, err = GetLocalAddr(conf.Device, sport, addr.IP.To4() == nil)
-					if laddr == nil {
-						continue
-					}
-				}
-
-				conn, connInfo, err = DialConnInfo(laddr, addr)
-
-				if err != nil {
-					if IsNormalError(err) {
-						continue
-					}
-					return nil, err
-				}
-
-				if connInfo != nil {
-					break
-				}
-			}
-
-			if connInfo == nil {
-				return nil, errors.New("connection does not exist")
-			}
-
-			fakepayload := make([]byte, len(b))
-			copy(fakepayload, b)
-
-			for i := offset; i < offset+length-3; i++ {
-				if fakepayload[i] != '.' {
-					fakepayload[i] = domainBytes[rand.Intn(len(domainBytes))]
-				}
-			}
-
-			count := 2
-			if conf.Option&OPT_MODE2 == 0 {
-				err = SendFakePacket(connInfo, fakepayload, conf, 1)
-				if err != nil {
-					conn.Close()
-					return nil, err
-				}
-				count = 1
-			}
-
-			_, err = conn.Write(b[:cut])
-			if err != nil {
-				conn.Close()
-				return nil, err
-			}
-
-			err = SendFakePacket(connInfo, fakepayload, conf, count)
-			if err != nil {
-				conn.Close()
-				return nil, err
-			}
-
-			_, err = conn.Write(b[cut:])
-			if err != nil {
-				conn.Close()
-				return nil, err
-			}
-
-			return conn, err
-		} else {
-			var laddr *net.TCPAddr = nil
-			if conf.Device != "" {
-				laddr, err = GetLocalAddr(conf.Device, 0, addr.IP.To4() == nil)
-				if err != nil {
-					return nil, err
-				}
-			}
-			conn, err = net.DialTCP("tcp", laddr, addr)
-			if err != nil {
-				return nil, err
-			}
-			_, err = conn.Write(b)
-			if err != nil {
-				conn.Close()
-			}
-			return conn, err
-		}
-	}
-
-	conn, err = net.DialTCP("tcp", nil, addr)
-	return conn, err
-}
-
-func HTTP(client net.Conn, address string, port int, b []byte, conf *Config) (net.Conn, error) {
-	var err error
-	var conn net.Conn
-
-	var ips []string
-	if conf.Option&OPT_IPV6 != 0 {
-		ips = NSLookup(address, 28)
-	} else {
-		ips = NSLookup(address, 1)
-	}
-	if len(ips) == 0 {
-		return nil, errors.New("no such host")
-	}
-
+	rand.Seed(time.Now().UnixNano())
 	if b != nil {
 		offset, length := GetHost(b)
 		cut := offset + length/2
@@ -374,10 +297,10 @@ func HTTP(client net.Conn, address string, port int, b []byte, conf *Config) (ne
 		if length > 0 {
 			var connInfo *ConnectionInfo
 			for i := 0; i < 5; i++ {
-				ipaddr := ips[rand.Intn(len(ips))]
+				ipaddr := addresses[rand.Intn(len(addresses))]
 				ip := net.ParseIP(ipaddr)
 				if ip == nil {
-					logPrintln(1, address, "Bad Address:", ipaddr)
+					logPrintln(1, "Bad Address:", ipaddr)
 					continue
 				}
 
@@ -403,7 +326,7 @@ func HTTP(client net.Conn, address string, port int, b []byte, conf *Config) (ne
 				}
 
 				if connInfo != nil {
-					logPrintln(2, address, port, ip)
+					logPrintln(2, ip, port)
 					break
 				}
 			}
@@ -475,7 +398,7 @@ func HTTP(client net.Conn, address string, port int, b []byte, conf *Config) (ne
 
 			return conn, err
 		} else {
-			ip := net.ParseIP(ips[rand.Intn(len(ips))])
+			ip := net.ParseIP(addresses[rand.Intn(len(addresses))])
 			if ip == nil {
 				return nil, nil
 			}
@@ -503,7 +426,7 @@ func HTTP(client net.Conn, address string, port int, b []byte, conf *Config) (ne
 		}
 	}
 
-	ip := net.ParseIP(ips[rand.Intn(len(ips))])
+	ip := net.ParseIP(addresses[rand.Intn(len(addresses))])
 	raddr := &net.TCPAddr{ip, port, ""}
 	conn, err = net.DialTCP("tcp", nil, raddr)
 	if err != nil {

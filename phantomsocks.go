@@ -1,300 +1,15 @@
 package main
 
 import (
-	"encoding/binary"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"math/rand"
 	"net"
 	"runtime"
-	"strconv"
 	"strings"
 
 	ptcp "./phantomtcp"
 )
-
-func handleSocksProxy(client net.Conn) {
-	defer client.Close()
-
-	host := ""
-	var conf ptcp.Config
-	var ok bool
-
-	var conn net.Conn
-	{
-		var b [1500]byte
-		n, err := client.Read(b[:])
-		if err != nil || n < 3 {
-			log.Println(client.RemoteAddr(), err)
-			return
-		}
-
-		if b[0] == 0x05 {
-			client.Write([]byte{0x05, 0x00})
-			n, err = client.Read(b[:4])
-			if n != 4 {
-				return
-			}
-
-			switch b[3] {
-			case 0x01: //IPv4
-				n, err = client.Read(b[:])
-				port := int(binary.BigEndian.Uint16(b[4:6]))
-				addr := net.TCPAddr{[]byte{b[0], b[1], b[2], b[3]}, port, ""}
-				conf, ok := ptcp.ConfigLookup(addr.IP.String())
-				if ok {
-					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", addr.IP.String(), addr.Port, conf)
-					}
-					client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
-					n, err = client.Read(b[:])
-					conn, err = ptcp.DialTCP(&addr, b[:n], &conf)
-				} else {
-					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", addr.IP.String(), addr.Port)
-					}
-					conn, err = net.DialTCP("tcp", nil, &addr)
-					client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
-				}
-			case 0x03: //Domain
-				n, err = client.Read(b[:])
-				port := int(binary.BigEndian.Uint16(b[n-2:]))
-				addrLen := b[0]
-				host = string(b[1 : addrLen+1])
-				conf, ok = ptcp.ConfigLookup(host)
-				if ok {
-					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", host, port, conf)
-					}
-
-					if conf.Option == 0 {
-						conn, err = ptcp.Dial(host, port, nil, nil)
-						if err != nil {
-							if ptcp.LogLevel > 0 {
-								log.Println(err)
-							}
-							return
-						}
-
-						n, err = client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
-						if err != nil {
-							conn.Close()
-							if ptcp.LogLevel > 0 {
-								log.Println(err)
-							}
-							return
-						}
-					} else {
-						n, err = client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
-						if err != nil {
-							if ptcp.LogLevel > 0 {
-								log.Println(err)
-							}
-							return
-						}
-
-						n, err = client.Read(b[:])
-						if err != nil {
-							if ptcp.LogLevel > 0 {
-								log.Println(err)
-							}
-							return
-						}
-
-						if b[0] != 0x16 {
-							if conf.Option&ptcp.OPT_HTTPS != 0 {
-								ptcp.HttpMove(client, "https", b[:n])
-								return
-							} else if conf.Option&ptcp.OPT_STRIP != 0 {
-								ips := ptcp.NSLookup(host, 1)
-								ipaddr := ips[rand.Intn(len(ips))]
-								conn, err = ptcp.DialStrip(ipaddr, "")
-								if err != nil {
-									if ptcp.LogLevel > 0 {
-										log.Println(err)
-									}
-									return
-								}
-								_, err = conn.Write(b[:n])
-							} else {
-								conn, err = ptcp.HTTP(client, host, 80, b[:n], &conf)
-								if err != nil {
-									if ptcp.LogLevel > 0 {
-										log.Println(err)
-									}
-									return
-								}
-								io.Copy(client, conn)
-								return
-							}
-						} else {
-							conn, err = ptcp.Dial(host, port, b[:n], &conf)
-							if err != nil {
-								if ptcp.LogLevel > 0 {
-									log.Println(host, err)
-								}
-								return
-							}
-						}
-					}
-				} else {
-					addr := net.JoinHostPort(host, strconv.Itoa(port))
-					if ptcp.LogLevel > 0 {
-						fmt.Println("Socks:", addr)
-					}
-					conn, err = net.Dial("tcp", addr)
-					if err != nil {
-						if ptcp.LogLevel > 0 {
-							log.Println(err)
-						}
-						return
-					}
-					_, err = client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
-				}
-			case 0x04: //IPv6
-				n, err = client.Read(b[:])
-				port := int(binary.BigEndian.Uint16(b[16:18]))
-				addr := net.TCPAddr{b[:16], port, ""}
-				if ptcp.LogLevel > 0 {
-					fmt.Println("Socks:", addr.IP.String(), addr.Port)
-				}
-				conn, err = net.DialTCP("tcp", nil, &addr)
-				client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
-			default:
-				if ptcp.LogLevel > 0 {
-					log.Println("Not Supported")
-				}
-				return
-			}
-		} else {
-			return
-		}
-
-		if err != nil {
-			if ptcp.LogLevel > 0 {
-				log.Println(err)
-			}
-			return
-		}
-	}
-
-	defer conn.Close()
-	go io.Copy(client, conn)
-	io.Copy(conn, client)
-}
-
-func handleSNIProxy(client net.Conn) {
-	defer client.Close()
-
-	var conn net.Conn
-	{
-		var b [1500]byte
-		n, err := client.Read(b[:])
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		var host string
-		var port int
-		if b[0] == 0x16 {
-			offset, length := ptcp.GetSNI(b[:n])
-			if length == 0 {
-				return
-			}
-			host = string(b[offset : offset+length])
-			port = 443
-		} else {
-			offset, length := ptcp.GetHost(b[:n])
-			if length == 0 {
-				return
-			}
-			host = string(b[offset : offset+length])
-			portstart := strings.Index(host, ":")
-			if portstart == -1 {
-				port = 80
-			} else {
-				port, err = strconv.Atoi(host[portstart+1:])
-				if err != nil {
-					return
-				}
-				host = host[:portstart]
-			}
-			if net.ParseIP(host) != nil {
-				return
-			}
-		}
-
-		conf, ok := ptcp.ConfigLookup(host)
-
-		if ok {
-			if ptcp.LogLevel > 0 {
-				fmt.Println("SNI:", host, port, conf)
-			}
-
-			if b[0] == 0x16 {
-				conn, err = ptcp.Dial(host, port, b[:n], &conf)
-				if err != nil {
-					if ptcp.LogLevel > 0 {
-						log.Println(host, err)
-					}
-					return
-				}
-			} else {
-				if conf.Option&ptcp.OPT_HTTPS != 0 {
-					ptcp.HttpMove(client, "https", b[:n])
-					return
-				} else if conf.Option&ptcp.OPT_STRIP != 0 {
-					ips := ptcp.NSLookup(host, 1)
-					ipaddr := ips[rand.Intn(len(ips))]
-					conn, err = ptcp.DialStrip(ipaddr, "")
-					if err != nil {
-						if ptcp.LogLevel > 0 {
-							log.Println(err)
-						}
-						return
-					}
-					_, err = conn.Write(b[:n])
-				} else {
-					conn, err = ptcp.HTTP(client, host, port, b[:n], &conf)
-					if err != nil {
-						if ptcp.LogLevel > 0 {
-							log.Println(err)
-						}
-						return
-					}
-					io.Copy(client, conn)
-					return
-				}
-			}
-		} else {
-			host = net.JoinHostPort(host, strconv.Itoa(port))
-			if ptcp.LogLevel > 0 {
-				log.Println(host)
-			}
-			conn, err = net.Dial("tcp", host)
-			if err != nil {
-				if ptcp.LogLevel > 0 {
-					log.Println(err)
-				}
-				return
-			}
-			_, err = conn.Write(b[:n])
-			if err != nil {
-				if ptcp.LogLevel > 0 {
-					log.Println(err)
-				}
-				return
-			}
-		}
-	}
-
-	defer conn.Close()
-	go io.Copy(client, conn)
-	io.Copy(conn, client)
-}
 
 func SocksProxy(listenAddr string) {
 	l, err := net.Listen("tcp", listenAddr)
@@ -308,7 +23,7 @@ func SocksProxy(listenAddr string) {
 			log.Panic(err)
 		}
 
-		go handleSocksProxy(client)
+		go ptcp.SocksProxy(client)
 	}
 }
 
@@ -324,7 +39,23 @@ func SNIProxy(listenAddr string) {
 			log.Panic(err)
 		}
 
-		go handleSNIProxy(client)
+		go ptcp.SNIProxy(client)
+	}
+}
+
+func Proxy(listenAddr string) {
+	l, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		log.Panic(err)
+	}
+	fmt.Println("Proxy:", listenAddr)
+	for {
+		client, err := l.Accept()
+		if err != nil {
+			log.Panic(err)
+		}
+
+		go ptcp.Proxy(client)
 	}
 }
 
@@ -357,11 +88,66 @@ func PACServer(listenAddr string, proxyAddr string) {
 	}
 }
 
+func DNSServer(listenAddr, DNS string) error {
+	addr, err := net.ResolveUDPAddr("udp", listenAddr)
+	if err != nil {
+		return err
+	}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	fmt.Println("DNS:", DNS, listenAddr)
+	data := make([]byte, 512)
+	for {
+		n, clientAddr, err := conn.ReadFromUDP(data)
+		if err != nil {
+			continue
+		}
+		qname, qtype, _ := ptcp.GetQName(data[:n])
+		_, ok := ptcp.ConfigLookup(qname)
+		if ok {
+			index, _ := ptcp.NSLookup(qname, 1)
+			response := ptcp.BuildLie(data[:n], index, qtype)
+			conn.WriteToUDP(response, clientAddr)
+			continue
+		}
+		if ptcp.LogLevel > 1 {
+			fmt.Println("DNS:", clientAddr, qname)
+		}
+		dnsConn, err := net.Dial("udp", DNS)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		_, err = dnsConn.Write(data[:n])
+		if err != nil {
+			log.Println(err)
+			dnsConn.Close()
+			continue
+		}
+		go func(clientAddr *net.UDPAddr, dnsConn net.Conn) {
+			defer dnsConn.Close()
+			recv := make([]byte, 1480)
+			n, err := dnsConn.Read(recv)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			conn.WriteToUDP(recv[:n], clientAddr)
+		}(clientAddr, dnsConn)
+	}
+	return nil
+}
+
 var configFiles = flag.String("c", "default.conf", "Config")
 var hostsFile = flag.String("hosts", "", "Hosts")
 var socksListenAddr = flag.String("socks", "", "Socks5")
 var pacListenAddr = flag.String("pac", "", "PACServer")
 var sniListenAddr = flag.String("sni", "", "SNIProxy")
+var dnsListenAddr = flag.String("dns", "", "DNS")
 var device = flag.String("device", "", "Device")
 var logLevel = flag.Int("log", 0, "LogLevel")
 
@@ -406,6 +192,10 @@ func main() {
 
 	if *sniListenAddr != "" {
 		go SNIProxy(*sniListenAddr)
+	}
+
+	if *dnsListenAddr != "" {
+		go DNSServer(":53", *dnsListenAddr)
 	}
 
 	devices := strings.Split(*device, ",")

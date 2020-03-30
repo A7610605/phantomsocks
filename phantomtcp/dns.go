@@ -175,7 +175,7 @@ func TLSlookup(request []byte, address string) ([]byte, error) {
 	return nil, nil
 }
 
-func getQName(buf []byte) (string, int, int) {
+func GetQName(buf []byte) (string, int, int) {
 	bufflen := len(buf)
 	if bufflen < 13 {
 		return "", 0, 0
@@ -312,6 +312,35 @@ func packAnswers(ips []string, qtype int) (int, []byte) {
 	return count, answers
 }
 
+func BuildLie(request []byte, id int, qtype int) []byte {
+	response := make([]byte, 1024)
+	copy(response, request)
+	length := len(request)
+	response[2] = 0x81
+	response[3] = 0x80
+	if qtype == 1 {
+		answer := []byte{0xC0, 0x0C, 0x00, 1,
+			0x00, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x04,
+			7, 0}
+		copy(response[length:], answer)
+		length += 14
+		binary.BigEndian.PutUint16(response[length:], uint16(id))
+		length += 2
+		binary.BigEndian.PutUint16(response[6:], 1)
+	} else if qtype == 28 {
+		answer := []byte{0xC0, 0x0C, 0x00, 28,
+			0x00, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x10,
+			0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00}
+		copy(response[length:], answer)
+		length += 24
+		binary.BigEndian.PutUint32(response[length:], uint32(id))
+		length += 4
+		binary.BigEndian.PutUint16(response[6:], 1)
+	}
+	return response[:length]
+}
+
 func PackQName(name string) []byte {
 	length := strings.Count(name, "")
 	QName := make([]byte, length+1)
@@ -351,10 +380,10 @@ func PackRequest(name string, qtype uint16) []byte {
 	return Request[:length]
 }
 
-func NSLookup(name string, qtype uint16) []string {
-	ips, ok := DNSCache[name]
+func NSLookup(name string, qtype uint16) (int, []string) {
+	ans, ok := DNSCache[name]
 	if ok {
-		return ips
+		return ans.Index, ans.Addresses
 	}
 	offset := 0
 	for i := 0; i < SubdomainDepth; i++ {
@@ -363,9 +392,9 @@ func NSLookup(name string, qtype uint16) []string {
 			break
 		}
 		offset += off
-		ips, ok = DNSCache[name[offset:]]
+		ans, ok = DNSCache[name[offset:]]
 		if ok {
-			return ips
+			return ans.Index, ans.Addresses
 		}
 		offset++
 	}
@@ -374,11 +403,13 @@ func NSLookup(name string, qtype uint16) []string {
 	response, err := TLSlookup(request, DNS)
 	if err != nil {
 		log.Println(err)
-		return nil
+		return 0, nil
 	}
 	count := int(binary.BigEndian.Uint16(response[6:8]))
-	ips = getAnswers(response[len(request):], count)
-	DNSCache[name] = ips
+	ips := getAnswers(response[len(request):], count)
 
-	return ips
+	index := len(Nose)
+	DNSCache[name] = Answer{index, ips}
+
+	return index, ips
 }

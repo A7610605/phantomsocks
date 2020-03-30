@@ -22,8 +22,13 @@ type Config struct {
 	Device string
 }
 
+type Answer struct {
+	Index     int
+	Addresses []string
+}
+
 var DomainMap map[string]Config
-var DNSCache map[string][]string
+var DNSCache map[string]Answer
 
 var SubdomainDepth = 2
 var LogLevel = 0
@@ -248,8 +253,10 @@ func getMyIPv6() net.IP {
 
 func Init() {
 	DomainMap = make(map[string]Config)
-	DNSCache = make(map[string][]string)
+	DNSCache = make(map[string]Answer)
 }
+
+var Nose []string
 
 func LoadConfig(filename string) error {
 	conf, err := os.Open(filename)
@@ -347,23 +354,25 @@ func LoadConfig(filename string) error {
 						}
 					} else {
 						ip := net.ParseIP(keys[0])
-						var ips []string
+						var ans Answer
 						if strings.HasPrefix(keys[1], "[") {
 							var ok bool
-							ips, ok = DNSCache[keys[1][1:len(keys[1])-1]]
+							ans, ok = DNSCache[keys[1][1:len(keys[1])-1]]
 							if !ok {
 								log.Println(string(line), "bad domain")
 							}
 						} else {
-							ips = strings.Split(keys[1], ",")
+							index := len(Nose)
+							Nose = append(Nose, keys[0])
+							ans = Answer{index, strings.Split(keys[1], ",")}
 						}
 
 						if ip == nil {
 							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, device}
-							DNSCache[keys[0]] = ips
+							DNSCache[keys[0]] = ans
 						} else {
 							DomainMap[ip.String()] = Config{option, minTTL, maxTTL, syncMSS, device}
-							DNSCache[ip.String()] = ips
+							DNSCache[ip.String()] = ans
 						}
 					}
 				} else {
@@ -435,7 +444,9 @@ func LoadHosts(filename string) error {
 			}
 
 			if !ok {
-				DNSCache[name] = []string{k[0]}
+				index := len(Nose)
+				Nose = append(Nose, name)
+				DNSCache[name] = Answer{index, []string{k[0]}}
 			}
 		}
 	}
