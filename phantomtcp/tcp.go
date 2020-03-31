@@ -262,8 +262,17 @@ func Dial(addresses []string, port int, b []byte, conf *Config) (net.Conn, error
 			if ip == nil {
 				return nil, nil
 			}
+
+			var laddr *net.TCPAddr = nil
+			if conf.Device != "" {
+				laddr, err = GetLocalAddr(conf.Device, 0, ip.To4() == nil)
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			raddr := &net.TCPAddr{ip, port, ""}
-			conn, err = net.DialTCP("tcp", nil, raddr)
+			conn, err = net.DialTCP("tcp", laddr, raddr)
 			if err != nil {
 				return nil, err
 			}

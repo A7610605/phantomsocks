@@ -44,12 +44,22 @@ func SocksProxy(client net.Conn) {
 					logPrintln(1, "Socks:", addr.IP.String(), addr.Port, conf)
 					client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 					n, err = client.Read(b[:])
-					addresses := []string{addr.IP.String()}
-					if conf.Option&OPT_NAT64 != 0 {
-						ans, ok := DNSCache[addresses[0]]
-						if ok {
-							addresses = ans.Addresses
+
+					ip := addr.IP.String()
+					ans, ok := DNSCache[ip]
+					var addresses []string
+					if ok {
+						if conf.Option&OPT_NAT64 != 0 {
+							addresses = make([]string, len(ans.Addresses))
+							for i := 0; i < len(ans.Addresses); i++ {
+								addresses[i] = ans.Addresses[i] + ip
+							}
+						} else {
+							addresses = make([]string, len(ans.Addresses))
+							copy(addresses, ans.Addresses)
 						}
+					} else {
+						addresses = []string{ip}
 					}
 					conn, err = Dial(addresses, port, b[:n], &conf)
 				} else {
