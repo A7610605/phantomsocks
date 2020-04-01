@@ -219,8 +219,12 @@ func Dial(addresses []string, port int, b []byte, conf *Config) (net.Conn, error
 				return nil, errors.New("connection does not exist")
 			}
 
-			fakepayload := make([]byte, len(b))
-			copy(fakepayload, b)
+			fakepaylen := 1280
+			if len(b) < fakepaylen {
+				fakepaylen = len(b)
+			}
+			fakepayload := make([]byte, fakepaylen)
+			copy(fakepayload, b[:fakepaylen])
 
 			for i := offset; i < offset+length-3; i++ {
 				if fakepayload[i] != '.' {
