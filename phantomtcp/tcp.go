@@ -98,7 +98,7 @@ func GetLocalAddr(name string, port int, ipv6 bool) (*net.TCPAddr, error) {
 				if ip4 != nil || localAddr.IP[0] == 0xfe {
 					continue
 				}
-				var ip [16]byte
+				ip := make([]byte, 16)
 				copy(ip[:16], localAddr.IP)
 				laddr := &net.TCPAddr{IP: ip[:], Port: port}
 				return laddr, nil
@@ -106,7 +106,7 @@ func GetLocalAddr(name string, port int, ipv6 bool) (*net.TCPAddr, error) {
 				if ip4 == nil {
 					continue
 				}
-				var ip [4]byte
+				ip := make([]byte, 4)
 				copy(ip[:4], ip4)
 				laddr := &net.TCPAddr{IP: ip[:], Port: port}
 				return laddr, nil
@@ -169,7 +169,7 @@ func GetOriginalDST(conn *net.TCPConn) (*net.TCPAddr, error) {
 	return nil, nil
 }
 
-func Dial(addresses []string, port int, b []byte, conf *Config) (net.Conn, error) {
+func Dial(addresses []net.IP, port int, b []byte, conf *Config) (net.Conn, error) {
 	var err error
 	var conn net.Conn
 
@@ -181,12 +181,7 @@ func Dial(addresses []string, port int, b []byte, conf *Config) (net.Conn, error
 			rand.Seed(time.Now().UnixNano())
 			var connInfo *ConnectionInfo
 			for i := 0; i < 5; i++ {
-				ipaddr := addresses[rand.Intn(len(addresses))]
-				ip := net.ParseIP(ipaddr)
-				if ip == nil {
-					logPrintln(1, "Bad Address:", ipaddr)
-					continue
-				}
+				ip := addresses[rand.Intn(len(addresses))]
 
 				var laddr *net.TCPAddr
 				sport := rand.Intn(65535-1024) + 1024
@@ -262,10 +257,7 @@ func Dial(addresses []string, port int, b []byte, conf *Config) (net.Conn, error
 
 			return conn, err
 		} else {
-			ip := net.ParseIP(addresses[rand.Intn(len(addresses))])
-			if ip == nil {
-				return nil, nil
-			}
+			ip := addresses[rand.Intn(len(addresses))]
 
 			var laddr *net.TCPAddr = nil
 			if conf.Device != "" {
@@ -288,17 +280,14 @@ func Dial(addresses []string, port int, b []byte, conf *Config) (net.Conn, error
 		}
 	}
 
-	ip := net.ParseIP(addresses[rand.Intn(len(addresses))])
-	if ip == nil {
-		return nil, nil
-	}
+	ip := addresses[rand.Intn(len(addresses))]
 	raddr := &net.TCPAddr{ip, port, ""}
 	conn, err = net.DialTCP("tcp", nil, raddr)
 
 	return conn, err
 }
 
-func HTTP(client net.Conn, addresses []string, port int, b []byte, conf *Config) (net.Conn, error) {
+func HTTP(client net.Conn, addresses []net.IP, port int, b []byte, conf *Config) (net.Conn, error) {
 	var err error
 	var conn net.Conn
 
@@ -310,12 +299,7 @@ func HTTP(client net.Conn, addresses []string, port int, b []byte, conf *Config)
 		if length > 0 {
 			var connInfo *ConnectionInfo
 			for i := 0; i < 5; i++ {
-				ipaddr := addresses[rand.Intn(len(addresses))]
-				ip := net.ParseIP(ipaddr)
-				if ip == nil {
-					logPrintln(1, "Bad Address:", ipaddr)
-					continue
-				}
+				ip := addresses[rand.Intn(len(addresses))]
 
 				var laddr *net.TCPAddr
 				sport := rand.Intn(65535-1024) + 1024
@@ -411,10 +395,7 @@ func HTTP(client net.Conn, addresses []string, port int, b []byte, conf *Config)
 
 			return conn, err
 		} else {
-			ip := net.ParseIP(addresses[rand.Intn(len(addresses))])
-			if ip == nil {
-				return nil, nil
-			}
+			ip := addresses[rand.Intn(len(addresses))]
 
 			var laddr *net.TCPAddr = nil
 			if conf.Device != "" {
@@ -439,7 +420,7 @@ func HTTP(client net.Conn, addresses []string, port int, b []byte, conf *Config)
 		}
 	}
 
-	ip := net.ParseIP(addresses[rand.Intn(len(addresses))])
+	ip := addresses[rand.Intn(len(addresses))]
 	raddr := &net.TCPAddr{ip, port, ""}
 	conn, err = net.DialTCP("tcp", nil, raddr)
 	if err != nil {

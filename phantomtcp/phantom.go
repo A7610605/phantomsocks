@@ -24,7 +24,7 @@ type Config struct {
 
 type Answer struct {
 	Index     int
-	Addresses []string
+	Addresses []net.IP
 }
 
 var DomainMap map[string]Config
@@ -364,7 +364,12 @@ func LoadConfig(filename string) error {
 						} else {
 							index := len(Nose)
 							Nose = append(Nose, keys[0])
-							ans = Answer{index, strings.Split(keys[1], ",")}
+							ips := strings.Split(keys[1], ",")
+							addresses := make([]net.IP, len(ips))
+							for i := 0; i < len(ips); i++ {
+								addresses[i] = net.ParseIP(ips[i])
+							}
+							ans = Answer{index, addresses}
 						}
 
 						if ip == nil {
@@ -446,7 +451,7 @@ func LoadHosts(filename string) error {
 			if !ok {
 				index := len(Nose)
 				Nose = append(Nose, name)
-				DNSCache[name] = Answer{index, []string{k[0]}}
+				DNSCache[name] = Answer{index, []net.IP{net.ParseIP(k[0])}}
 			}
 		}
 	}

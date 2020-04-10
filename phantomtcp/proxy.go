@@ -45,21 +45,23 @@ func SocksProxy(client net.Conn) {
 					client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 					n, err = client.Read(b[:])
 
-					ip := addr.IP.String()
-					ans, ok := DNSCache[ip]
-					var addresses []string
+					ip := addr.IP
+					ans, ok := DNSCache[ip.String()]
+					var addresses []net.IP
 					if ok {
+						addresses = make([]net.IP, len(ans.Addresses))
 						if conf.Option&OPT_NAT64 != 0 {
-							addresses = make([]string, len(ans.Addresses))
 							for i := 0; i < len(ans.Addresses); i++ {
-								addresses[i] = ans.Addresses[i] + ip
+								ip6 := make([]byte, 16)
+								copy(ip6[:], ans.Addresses[i][:12])
+								copy(ip6[12:], ip.To4())
+								addresses[i] = ip6[:]
 							}
 						} else {
-							addresses = make([]string, len(ans.Addresses))
 							copy(addresses, ans.Addresses)
 						}
 					} else {
-						addresses = []string{ip}
+						addresses = []net.IP{ip}
 					}
 					conn, err = Dial(addresses, port, b[:n], &conf)
 				} else {
@@ -77,7 +79,7 @@ func SocksProxy(client net.Conn) {
 				if ok {
 					logPrintln(1, "Socks:", host, port, conf)
 
-					var ips []string
+					var ips []net.IP
 					if conf.Option&OPT_IPV6 != 0 {
 						_, ips = NSLookup(host, 28)
 					} else {
@@ -122,7 +124,7 @@ func SocksProxy(client net.Conn) {
 							} else if conf.Option&OPT_STRIP != 0 {
 								rand.Seed(time.Now().UnixNano())
 								ipaddr := ips[rand.Intn(len(ips))]
-								conn, err = DialStrip(ipaddr, "")
+								conn, err = DialStrip(ipaddr.String(), "")
 								if err != nil {
 									logPrintln(1, err)
 									return
@@ -228,7 +230,7 @@ func SNIProxy(client net.Conn) {
 		if ok {
 			logPrintln(1, "SNI:", host, port, conf)
 
-			var ips []string
+			var ips []net.IP
 			if conf.Option&OPT_IPV6 != 0 {
 				_, ips = NSLookup(host, 28)
 			} else {
@@ -250,8 +252,8 @@ func SNIProxy(client net.Conn) {
 					HttpMove(client, "https", b[:n])
 					return
 				} else if conf.Option&OPT_STRIP != 0 {
-					ipaddr := ips[rand.Intn(len(ips))]
-					conn, err = DialStrip(ipaddr, "")
+					ip := ips[rand.Intn(len(ips))]
+					conn, err = DialStrip(ip.String(), "")
 					if err != nil {
 						logPrintln(1, err)
 						return
@@ -331,7 +333,7 @@ func Proxy(client net.Conn) {
 
 			logPrintln(1, "Proxy:", host, port, conf)
 
-			var ips []string
+			var ips []net.IP
 			if conf.Option&OPT_IPV6 != 0 {
 				_, ips = NSLookup(host, 28)
 			} else {
@@ -353,8 +355,8 @@ func Proxy(client net.Conn) {
 					HttpMove(client, "https", b[:n])
 					return
 				} else if conf.Option&OPT_STRIP != 0 {
-					ipaddr := ips[rand.Intn(len(ips))]
-					conn, err = DialStrip(ipaddr, "")
+					ip := ips[rand.Intn(len(ips))]
+					conn, err = DialStrip(ip.String(), "")
 					if err != nil {
 						logPrintln(1, err)
 						return

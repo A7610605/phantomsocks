@@ -212,8 +212,8 @@ func GetQName(buf []byte) (string, int, int) {
 	return qname, qtype, end
 }
 
-func getAnswers(answers []byte, count int) []string {
-	ips := make([]string, 0)
+func getAnswers(answers []byte, count int) []net.IP {
+	ips := make([]net.IP, 0)
 	offset := 0
 
 	for i := 0; i < count; i++ {
@@ -252,7 +252,7 @@ func getAnswers(answers []byte, count int) []string {
 				return nil
 			}
 			data := answers[offset : offset+4]
-			ip := net.IPv4(data[0], data[1], data[2], data[3]).String()
+			ip := net.IPv4(data[0], data[1], data[2], data[3])
 			ips = append(ips, ip)
 		} else if AType == 28 {
 			var data [16]byte
@@ -260,7 +260,7 @@ func getAnswers(answers []byte, count int) []string {
 				return nil
 			}
 			copy(data[:], answers[offset:offset+16])
-			ip := net.IP(answers[offset : offset+16]).String()
+			ip := net.IP(answers[offset : offset+16])
 			ips = append(ips, ip)
 		}
 
@@ -380,7 +380,7 @@ func PackRequest(name string, qtype uint16) []byte {
 	return Request[:length]
 }
 
-func NSLookup(name string, qtype uint16) (int, []string) {
+func NSLookup(name string, qtype uint16) (int, []net.IP) {
 	ans, ok := DNSCache[name]
 	if ok {
 		return ans.Index, ans.Addresses
