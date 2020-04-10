@@ -3,7 +3,6 @@ package phantomtcp
 import (
 	"fmt"
 	"log"
-	"sync"
 	"syscall"
 
 	"github.com/google/gopacket"
@@ -42,58 +41,62 @@ var ConnInfo6 [65536]*ConnectionInfo
 
 var pcapHandle *pcap.Handle
 
-func ConnectionMonitor(devices []string) {
+func connectionMonitor(device string) {
+	fmt.Printf("Device: %v\n", device)
+
 	snapLen := int32(65535)
 	filter := "(ip6[6]==6 and ip6[53]=2) or (tcp[13]=2)"
 
-	var wg sync.WaitGroup
-	for _, dev := range devices {
-		fmt.Printf("Device: %v\n", dev)
-		wg.Add(1)
-		go func(dev string) {
-			defer wg.Done()
-			var err error
-			pcapHandle, err = pcap.OpenLive(dev, snapLen, true, pcap.BlockForever)
-			if err != nil {
-				fmt.Printf("pcap open live failed: %v", err)
-				return
-			}
-
-			if err = pcapHandle.SetBPFFilter(filter); err != nil {
-				fmt.Printf("set bpf filter failed: %v", err)
-				return
-			}
-			defer pcapHandle.Close()
-
-			packetSource := gopacket.NewPacketSource(pcapHandle, pcapHandle.LinkType())
-			packetSource.NoCopy = false
-			for {
-				packet, err := packetSource.NextPacket()
-				if err != nil {
-					logPrintln(1, err)
-					continue
-				}
-
-				link := packet.LinkLayer()
-				ip := packet.NetworkLayer()
-				tcp := packet.TransportLayer().(*layers.TCP)
-
-				switch ip := ip.(type) {
-				case *layers.IPv4:
-					srcPort := tcp.SrcPort
-					if ConnSyn4[srcPort] {
-						ConnInfo4[srcPort] = &ConnectionInfo{link, ip, *tcp}
-					}
-				case *layers.IPv6:
-					srcPort := tcp.SrcPort
-					if ConnSyn6[srcPort] {
-						ConnInfo6[srcPort] = &ConnectionInfo{link, ip, *tcp}
-					}
-				}
-			}
-		}(dev)
+	var err error
+	pcapHandle, err = pcap.OpenLive(device, snapLen, true, pcap.BlockForever)
+	if err != nil {
+		fmt.Printf("pcap open live failed: %v", err)
+		return
 	}
-	wg.Wait()
+
+	if err = pcapHandle.SetBPFFilter(filter); err != nil {
+		fmt.Printf("set bpf filter failed: %v", err)
+		return
+	}
+	defer pcapHandle.Close()
+
+	packetSource := gopacket.NewPacketSource(pcapHandle, pcapHandle.LinkType())
+	packetSource.NoCopy = false
+	for {
+		packet, err := packetSource.NextPacket()
+		if err != nil {
+			logPrintln(1, err)
+			continue
+		}
+
+		link := packet.LinkLayer()
+		ip := packet.NetworkLayer()
+		tcp := packet.TransportLayer().(*layers.TCP)
+
+		switch ip := ip.(type) {
+		case *layers.IPv4:
+			srcPort := tcp.SrcPort
+			if ConnSyn4[srcPort] {
+				ConnInfo4[srcPort] = &ConnectionInfo{link, ip, *tcp}
+			}
+		case *layers.IPv6:
+			srcPort := tcp.SrcPort
+			if ConnSyn6[srcPort] {
+				ConnInfo6[srcPort] = &ConnectionInfo{link, ip, *tcp}
+			}
+		}
+	}
+}
+
+func ConnectionMonitor(devices []string) {
+	if len(devices) == 1 {
+		connectionMonitor(devices[0])
+	} else {
+		for i := 1; i < len(devices); i++ {
+			go connectionMonitor(devices[i])
+		}
+		connectionMonitor(devices[0])
+	}
 }
 
 func SendFakePacket(connInfo *ConnectionInfo, payload []byte, config *Config, count int) error {

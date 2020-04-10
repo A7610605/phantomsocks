@@ -58,6 +58,7 @@ func DialConnInfo(laddr, raddr *net.TCPAddr) (*net.TCPConn, *ConnectionInfo, err
 	if ip4 != nil {
 		ConnSyn4[laddr.Port] = true
 		conn, err := net.DialTCP("tcp4", laddr, raddr)
+		time.Sleep(0)
 		ConnSyn4[laddr.Port] = false
 
 		if err != nil {
@@ -71,6 +72,7 @@ func DialConnInfo(laddr, raddr *net.TCPAddr) (*net.TCPConn, *ConnectionInfo, err
 	} else {
 		ConnSyn6[laddr.Port] = true
 		conn, err := net.DialTCP("tcp6", laddr, raddr)
+		time.Sleep(0)
 		ConnSyn6[laddr.Port] = false
 
 		if err != nil {
@@ -196,7 +198,7 @@ func Dial(addresses []net.IP, port int, b []byte, conf *Config) (net.Conn, error
 
 				raddr := &net.TCPAddr{ip, port, ""}
 				conn, connInfo, err = DialConnInfo(laddr, raddr)
-
+				logPrintln(2, ip, port, err)
 				if err != nil {
 					if IsNormalError(err) {
 						continue
@@ -204,10 +206,7 @@ func Dial(addresses []net.IP, port int, b []byte, conf *Config) (net.Conn, error
 					return nil, err
 				}
 
-				if connInfo != nil {
-					logPrintln(2, ip, port)
-					break
-				}
+				break
 			}
 
 			if connInfo == nil {
